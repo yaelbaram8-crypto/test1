@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Shopping | רשימת קניות משפחתית</title>
+    <!-- Premium Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Assistant:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- Main Style -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app" class="app-container">
+        <!-- Header -->
+        <header class="main-header">
+            <div class="header-content">
+                <div class="logo">
+                    <span class="logo-emoji">🛒</span>
+                    <h1>הקניות שלנו</h1>
+                </div>
+                <button id="scan-receipt-btn" class="btn btn-secondary" title="סרוק קבלה">
+                    <span class="icon">📸</span>
+                </button>
+                <input type="file" id="receipt-upload" accept="image/*" capture="environment" style="display: none;">
+            </div>
+        </header>
+
+        <!-- Search/Add Section -->
+        <section class="add-item-section">
+            <div class="input-group">
+                <input type="text" id="item-input" placeholder="מה חסר לכם? (למשל: חלב 🥒)" autocomplete="off">
+                <button id="add-item-btn" class="btn btn-primary">הוספה</button>
+            </div>
+        </section>
+
+        <!-- Main Content -->
+        <main class="content-area">
+            <!-- Categories / List -->
+            <div id="shopping-list-container" class="shopping-list">
+                <!-- Items will be injected here by JS -->
+                <div class="empty-state">
+                    <p>הרשימה ריקה. זמן למלא את המקרר! ✨</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- Bottom Navigation (Mobile) -->
+        <nav class="bottom-nav">
+            <button class="nav-item active" data-view="list">
+                <span class="icon">📝</span>
+                <span>רשימה</span>
+            </button>
+            <button class="nav-item" data-view="history">
+                <span class="icon">🕒</span>
+                <span>היסטוריה</span>
+            </button>
+            <button class="nav-item" data-view="stats">
+                <span class="icon">📊</span>
+                <span>סטטיסטיקה</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Scripts -->
+    <!-- Supabase Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Tesseract.js -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- App Logic -->
+    <script src="app.js" type="module"></script>
+</body>
+</html>
