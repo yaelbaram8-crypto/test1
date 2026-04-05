@@ -1,6 +1,9 @@
 name: Daily Israeli Grocery Price Sync
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # רץ כל לילה בשעה 2:00 בלילה שעון יוניברסלי (UTC) - בערך 4 בבוקר שעון ישראל
     - cron: '0 2 * * *'
