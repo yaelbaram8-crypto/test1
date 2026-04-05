@@ -30,4 +30,4 @@ jobs:
           # מכניסים כאן בתור משתני סביבה את הסודות שיוגדרו בגיטהאב
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node sync-prices.js
+        run: node sync-prices.mjs
