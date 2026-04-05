@@ -42,17 +42,18 @@ class ShoppingApp {
 
 
     cacheDom() {
-        this.itemInput    = document.getElementById('item-input');
-        this.qtyInput     = document.getElementById('qty-input');
-        this.addBtn       = document.getElementById('add-item-btn');
-        this.listContainer= document.getElementById('shopping-list-container');
-        this.statsContainer= document.getElementById('stats-container');
-        this.historyContainer= document.getElementById('history-container');
-        this.suggestionsContainer= document.getElementById('smart-suggestions-container');
-        this.scanBtn      = document.getElementById('scan-receipt-btn');
-        this.fileInput    = document.getElementById('receipt-upload');
-        this.clearBtn     = document.getElementById('clear-list-btn');
-        this.viewToggleBtn= document.getElementById('view-toggle-btn');
+        this.itemInput = document.getElementById('item-input');
+        this.qtyInput = document.getElementById('qty-input');
+        this.addBtn = document.getElementById('add-item-btn');
+        this.listContainer = document.getElementById('shopping-list-container');
+        this.statsContainer = document.getElementById('stats-container');
+        this.historyContainer = document.getElementById('history-container');
+        this.suggestionsContainer = document.getElementById('smart-suggestions-container');
+        this.scanBtn = document.getElementById('scan-receipt-btn');
+        this.optimizeBtn = document.getElementById('optimize-cart-btn');
+        this.fileInput = document.getElementById('receipt-upload');
+        this.clearBtn = document.getElementById('clear-list-btn');
+        this.viewToggleBtn = document.getElementById('view-toggle-btn');
     }
 
     bindEvents() {
@@ -75,15 +76,20 @@ class ShoppingApp {
         // View toggle
         this.viewToggleBtn.addEventListener('click', () => {
             this.viewMode = this.viewMode === 'category' ? 'all' : 'category';
-            this.viewToggleBtn.querySelector('.icon').textContent = 
+            this.viewToggleBtn.querySelector('.icon').textContent =
                 this.viewMode === 'category' ? '📌' : '📋';
             this.render();
         });
 
+        // Price Intelligence Trigger
+        if (this.optimizeBtn) {
+            this.optimizeBtn.addEventListener('click', () => this.optimizeCartPrices());
+        }
+
         // OCR Scan Trigger
         this.scanBtn.addEventListener('click', () => this.fileInput.click());
         this.fileInput.addEventListener('change', (e) => this.handleReceiptUpload(e));
-        
+
         // Tab switching
         document.querySelectorAll('.nav-item').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -98,11 +104,11 @@ class ShoppingApp {
     switchView(viewName) {
         document.querySelectorAll('.view-section').forEach(sect => sect.style.display = 'none');
         document.querySelector('.add-item-section').style.display = viewName === 'list' ? 'block' : 'none';
-        
+
         if (viewName === 'list') {
             this.listContainer.style.display = 'block';
-            if(this.suggestionsContainer.innerHTML.trim() !== '') {
-               this.suggestionsContainer.style.display = 'block';
+            if (this.suggestionsContainer.innerHTML.trim() !== '') {
+                this.suggestionsContainer.style.display = 'block';
             }
             this.render();
         } else if (viewName === 'stats') {
@@ -178,8 +184,8 @@ class ShoppingApp {
 
             lines.forEach(line => {
                 // Ignore lines that are just dates or total numbers
-                if (line.match(/\d{2}[\/.]\d{2}[\/.]\d{2}/)) return; 
-                
+                if (line.match(/\d{2}[\/.]\d{2}[\/.]\d{2}/)) return;
+
                 // Try to separate name from price (e.g. "חלב 5.90")
                 const priceMatch = line.match(/(\d+\.\d{2})/);
                 let itemName = line;
@@ -213,6 +219,34 @@ class ShoppingApp {
     }
 
 
+    async optimizeCartPrices() {
+        if (this.items.length === 0) {
+            alert("הוסיפו פריטים כדי להשוות מחירים.");
+            return;
+        }
+        
+        // Add loading state
+        if (this.optimizeBtn) this.optimizeBtn.innerHTML = '<span class="spinner" style="font-size:18px;">⏳</span>';
+        
+        // Simulate waiting for Edge Function / AI Skill response
+        await new Promise(r => setTimeout(r, 1500));
+        
+        const possibleChains = ["שופרסל", "רמי לוי", "יוחננוף", "ויקטורי"];
+
+        this.items = this.items.map(item => {
+            if(!item.completed) {
+                // Mock smart data mapping
+                const bestChain = possibleChains[Math.floor(Math.random() * possibleChains.length)];
+                const bestPrice = (Math.random() * 10 + 3).toFixed(2);
+                item.priceData = { chain: bestChain, price: bestPrice };
+            }
+            return item;
+        });
+
+        if (this.optimizeBtn) this.optimizeBtn.innerHTML = '<span class="icon">💰</span>';
+        this.render();
+    }
+
     setLoading(isLoading, message = "") {
         if (isLoading) {
             this.scanBtn.disabled = true;
@@ -226,7 +260,7 @@ class ShoppingApp {
 
     async addItem(manualText = null, manualQty = 1, shouldRender = true) {
         const text = manualText || this.itemInput.value.trim();
-        const qty  = manualText ? manualQty : parseInt(this.qtyInput.value || 1);
+        const qty = manualText ? manualQty : parseInt(this.qtyInput.value || 1);
         if (!text) return;
 
         // Duplicate detection
@@ -243,16 +277,19 @@ class ShoppingApp {
         const categoryId = this.detectCategory(text);
         const newItem = { text, completed: false, category_id: categoryId, quantity: qty };
 
+        // Optimistic update
+        this.items.unshift({ ...newItem, id: 'temp-' + Date.now(), created_at: new Date().toISOString() });
+        if (shouldRender) this.render();
+
         if (this.supabase) {
             const { error } = await this.supabase.from('shopping_items').insert([newItem]);
             if (error) console.error('Error adding item:', error);
+            else this.fetchItems(); // fetch real IDs assigned by Postgres
         } else {
-            this.items.unshift({ ...newItem, id: Date.now(), created_at: new Date().toISOString() });
             this.saveLocalData();
         }
 
         if (manualText === null) { this.itemInput.value = ''; this.qtyInput.value = 1; }
-        if (shouldRender && !this.supabase) this.render();
     }
 
 
@@ -269,6 +306,10 @@ class ShoppingApp {
         const item = this.items.find(i => i.id === id);
         if (!item) return;
 
+        // Optimistic update
+        this.items = this.items.map(i => i.id === id ? { ...i, completed: !i.completed } : i);
+        this.render();
+
         if (this.supabase) {
             const { error } = await this.supabase
                 .from('shopping_items')
@@ -276,15 +317,15 @@ class ShoppingApp {
                 .eq('id', id);
             if (error) console.error('Error toggling item:', error);
         } else {
-            this.items = this.items.map(i =>
-                i.id === id ? { ...i, completed: !i.completed } : i
-            );
             this.saveLocalData();
-            this.render();
         }
     }
 
     async deleteItem(id) {
+        // Optimistic update
+        this.items = this.items.filter(item => item.id !== id);
+        this.render();
+
         if (this.supabase) {
             const { error } = await this.supabase
                 .from('shopping_items')
@@ -292,14 +333,17 @@ class ShoppingApp {
                 .eq('id', id);
             if (error) console.error('Error deleting item:', error);
         } else {
-            this.items = this.items.filter(item => item.id !== id);
             this.saveLocalData();
-            this.render();
         }
     }
 
     async updateQuantity(id, newQty) {
         if (newQty < 1) { await this.deleteItem(id); return; }
+        
+        // Optimistic update
+        this.items = this.items.map(i => i.id === id ? { ...i, quantity: newQty } : i);
+        this.render();
+
         if (this.supabase) {
             const { error } = await this.supabase
                 .from('shopping_items')
@@ -307,14 +351,17 @@ class ShoppingApp {
                 .eq('id', id);
             if (error) console.error('Error updating quantity:', error);
         } else {
-            this.items = this.items.map(i => i.id === id ? { ...i, quantity: newQty } : i);
             this.saveLocalData();
-            this.render();
         }
     }
 
     async clearList() {
         if (!confirm('למחוק את כל הפריטים ברשימה?')) return;
+        
+        // Optimistic update
+        this.items = [];
+        this.render();
+
         if (this.supabase) {
             const { error } = await this.supabase
                 .from('shopping_items')
@@ -322,9 +369,7 @@ class ShoppingApp {
                 .neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
             if (error) console.error('Error clearing list:', error);
         } else {
-            this.items = [];
             this.saveLocalData();
-            this.render();
         }
     }
 
@@ -343,13 +388,16 @@ class ShoppingApp {
             <div class="list-item ${item.completed ? 'completed' : ''}" data-id="${item.id}">
                 <div class="item-main" onclick="window.app.toggleItem('${item.id}')">
                     <div class="checkbox"></div>
-                    <span class="item-text">${item.text}</span>
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                        <span class="item-text">${item.text}</span>
+                        ${item.priceData && !item.completed ? `<span style="font-size:0.75rem; color:#10b981; font-weight:600;">✨ הכי זול ב${item.priceData.chain}: ₪${item.priceData.price}</span>` : ''}
+                    </div>
                 </div>
                 <div class="item-controls">
                     <div class="qty-inline">
-                        <button class="qty-btn-sm" onclick="window.app.updateQuantity('${item.id}', ${(item.quantity||1)-1})">\u2212</button>
+                        <button class="qty-btn-sm" onclick="window.app.updateQuantity('${item.id}', ${(item.quantity || 1) - 1})">\u2212</button>
                         <span class="qty-badge">${item.quantity || 1}</span>
-                        <button class="qty-btn-sm" onclick="window.app.updateQuantity('${item.id}', ${(item.quantity||1)+1})">+</button>
+                        <button class="qty-btn-sm" onclick="window.app.updateQuantity('${item.id}', ${(item.quantity || 1) + 1})">+</button>
                     </div>
                     <button class="delete-btn" onclick="window.app.deleteItem('${item.id}')">
                         <span class="icon">\ud83d\uddd1\ufe0f</span>
@@ -404,7 +452,7 @@ class ShoppingApp {
         if (error) { console.error('Error fetching popular items:', error); return []; }
         return data || [];
     }
-    
+
     async fetchPurchaseHistory() {
         if (!this.supabase) return [];
         const { data, error } = await this.supabase
@@ -418,8 +466,8 @@ class ShoppingApp {
 
     async renderSmartSuggestions() {
         if (!this.supabase || this.viewMode !== 'category') {
-             this.suggestionsContainer.style.display = 'none';
-             return;
+            this.suggestionsContainer.style.display = 'none';
+            return;
         }
 
         const popular = await this.fetchPopularItems();
@@ -450,10 +498,10 @@ class ShoppingApp {
     async renderStats() {
         const popular = await this.fetchPopularItems();
         if (popular.length === 0) {
-             this.statsContainer.innerHTML = `<div class="empty-state"><p>אין מספיק נתונים לסטטיסטיקה. התחילו לקנות!</p></div>`;
-             return;
+            this.statsContainer.innerHTML = `<div class="empty-state"><p>אין מספיק נתונים לסטטיסטיקה. התחילו לקנות!</p></div>`;
+            return;
         }
-        
+
         this.statsContainer.innerHTML = `
             <div class="stats-dashboard">
                 <h2>📊 המוצרים הנקנים ביותר</h2>
@@ -476,13 +524,13 @@ class ShoppingApp {
     async renderHistory() {
         const history = await this.fetchPurchaseHistory();
         if (history.length === 0) {
-             this.historyContainer.innerHTML = `<div class="empty-state"><p>עוד לא ביצעת קניות במערכת.</p></div>`;
-             return;
+            this.historyContainer.innerHTML = `<div class="empty-state"><p>עוד לא ביצעת קניות במערכת.</p></div>`;
+            return;
         }
-        
+
         const formatDate = (dateString) => {
             const d = new Date(dateString);
-            return `${d.getDate()}/${d.getMonth()+1} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+            return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
         };
 
         this.historyContainer.innerHTML = `

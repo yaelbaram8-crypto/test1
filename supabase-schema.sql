@@ -142,3 +142,54 @@ ORDER BY popularity_score DESC;
 -- הגדר הרשאות ל-View
 DROP POLICY IF EXISTS "Public access history" ON purchase_history;
 CREATE POLICY "Public access history" ON purchase_history FOR ALL USING (true) WITH CHECK (true);
+
+-- ===================================================
+-- PHASE 3: Israeli Grocery Price Intelligence
+-- ===================================================
+
+-- 10. טבלת רשתות שיווק (Chains)
+CREATE TABLE IF NOT EXISTS supermarket_chains (
+    id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    chain_name  TEXT NOT NULL UNIQUE,
+    logo_url    TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+-- 11. טבלת מוצרים (Products/Barcode cache)
+CREATE TABLE IF NOT EXISTS market_products (
+    id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    barcode       TEXT UNIQUE,
+    product_name  TEXT NOT NULL,
+    brand         TEXT,
+    category_id   TEXT DEFAULT 'other',
+    created_at    TIMESTAMPTZ DEFAULT now(),
+    updated_at    TIMESTAMPTZ DEFAULT now()
+);
+
+-- 12. טבלת מחירי שוק (Market Prices)
+CREATE TABLE IF NOT EXISTS market_prices (
+    id               UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    product_id       UUID REFERENCES market_products(id) ON DELETE CASCADE,
+    chain_id         UUID REFERENCES supermarket_chains(id) ON DELETE CASCADE,
+    price            NUMERIC(8, 2) NOT NULL,
+    is_promotional   BOOLEAN DEFAULT FALSE,
+    scraped_at       TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(product_id, chain_id)
+);
+
+-- אינדקסים לחיפוש מהיר
+CREATE INDEX IF NOT EXISTS idx_market_product_name ON market_products(product_name);
+CREATE INDEX IF NOT EXISTS idx_market_prices_prod ON market_prices(product_id);
+
+-- RLS: גישה ציבורית לשלב ה-MVP
+ALTER TABLE supermarket_chains ENABLE ROW LEVEL SECURITY;
+ALTER TABLE market_products    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE market_prices      ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Public access chains"   ON supermarket_chains FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public access products" ON market_products    FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public access prices"   ON market_prices      FOR ALL USING (true) WITH CHECK (true);
+
+-- הוספת שדה לחיבור היסטוריית רכישות לרשת השיווק הספציפית
+ALTER TABLE purchase_history
+    ADD COLUMN IF NOT EXISTS chain_id UUID REFERENCES supermarket_chains(id) ON DELETE SET NULL;
