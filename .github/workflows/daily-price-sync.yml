@@ -1,0 +1,30 @@
+name: Daily Israeli Grocery Price Sync
+
+on:
+  schedule:
+    # רץ כל לילה בשעה 2:00 בלילה שעון יוניברסלי (UTC) - בערך 4 בבוקר שעון ישראל
+    - cron: '0 2 * * *'
+  workflow_dispatch: # מאפשר להריץ באופן ידני מהממשק של גיטהאב
+
+jobs:
+  sync_prices:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install Dependencies
+        run: npm install @supabase/supabase-js
+          
+      - name: Run Price Sync Script
+        env:
+          # מכניסים כאן בתור משתני סביבה את הסודות שיוגדרו בגיטהאב
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node sync-prices.js
