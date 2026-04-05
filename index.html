@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#6366f1">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3737/3737372.png">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛒</text></svg>">
     <title>Family Shopping | רשימת קניות משפחתית</title>
     <!-- Premium Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -10,8 +14,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Assistant:wght@300;400;600;700&display=swap" rel="stylesheet">
     <!-- Main Style -->
     <link rel="stylesheet" href="styles.css">
-    <!-- Global RTL Support -->
-    <link rel="stylesheet" href="../../global-rtl/rtl-styles.css">
+    <!-- Global RTL Support (local copy) -->
+    <link rel="stylesheet" href="rtl-styles.css">
 </head>
 <body>
     <div id="app" class="app-container">
@@ -22,28 +26,57 @@
                     <span class="logo-emoji">🛒</span>
                     <h1>הקניות שלנו</h1>
                 </div>
-                <button id="scan-receipt-btn" class="btn btn-secondary" title="סרוק קבלה">
-                    <span class="icon">📸</span>
-                </button>
-                <input type="file" id="receipt-upload" accept="image/*" capture="environment" style="display: none;">
+                <div class="header-actions">
+                    <button id="view-toggle-btn" class="btn btn-secondary" title="שנה תצוגה">
+                        <span class="icon">📌</span>
+                    </button>
+                    <button id="clear-list-btn" class="btn btn-danger" title="נקה רשימה">
+                        <span class="icon">🗑️</span>
+                    </button>
+                    <button id="scan-receipt-btn" class="btn btn-secondary" title="סרוק קבלה">
+                        <span class="icon">📸</span>
+                    </button>
+                    <input type="file" id="receipt-upload" accept="image/*" capture="environment" style="display: none;">
+                </div>
             </div>
         </header>
 
         <!-- Search/Add Section -->
         <section class="add-item-section">
             <div class="input-group">
-                <input type="text" id="item-input" placeholder="מה חסר לכם? (למשל: חלב 🥒)" autocomplete="off">
+                <input type="text" id="item-input" placeholder="מה חסר לכם?" autocomplete="off">
+                <div class="qty-control">
+                    <button id="qty-minus" class="qty-btn">−</button>
+                    <input type="number" id="qty-input" value="1" min="1" max="99" aria-label="כמות" title="כמות">
+                    <button id="qty-plus" class="qty-btn">+</button>
+                </div>
                 <button id="add-item-btn" class="btn btn-primary">הוספה</button>
             </div>
         </section>
 
         <!-- Main Content -->
         <main class="content-area">
-            <!-- Categories / List -->
-            <div id="shopping-list-container" class="shopping-list">
-                <!-- Items will be injected here by JS -->
+            <!-- Smart Suggestions (hidden by default, injected by JS) -->
+            <div id="smart-suggestions-container"></div>
+
+            <!-- Categories / List View -->
+            <div id="shopping-list-container" class="view-section active">
                 <div class="empty-state">
                     <p>הרשימה ריקה. זמן למלא את המקרר! ✨</p>
+                </div>
+            </div>
+
+            <!-- Stats & Insights View -->
+            <div id="stats-container" class="view-section" style="display: none;">
+                <div class="empty-state">
+                    <p>טוען נתונים חכמים...</p>
+                </div>
+            </div>
+            
+            <!-- History View -->
+            <div id="history-container" class="view-section" style="display: none;">
+                <div class="empty-state">
+                    <p>היסטוריית הקניות שלך ריקה בינתיים.</p>
                 </div>
             </div>
         </main>
@@ -72,7 +105,17 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <!-- App Logic -->
     <script src="app.js" type="module"></script>
-    <!-- Global RTL Helper -->
-    <script src="../../global-rtl/rtl-helper.js"></script>
+    <!-- Global RTL Helper (local copy) -->
+    <script src="rtl-helper.js"></script>
+    <!-- Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('📱 SW registered:', reg.scope))
+            .catch(err => console.warn('⚠️ SW registration failed:', err));
+        });
+      }
+    </script>
 </body>
 </html>

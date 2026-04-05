@@ -1,0 +1,36 @@
+/* -------------- rtl-styles.css – CSS גלובלי ל-RTL -------------- */
+
+/* ברירת-מחדל – LTR לכל העמוד */
+html { direction: ltr; }
+
+/* אלמנטים שמסומנים כ-rtl (class="rtl" או dir="rtl") */
+.rtl,
+[dir="rtl"] {
+  direction: rtl;               /* כיוון הטקסט */
+  unicode-bidi: bidi-override; /* מכריח את סדר האותיות */
+  text-align: start;            /* מתחיל מהצד הימני */
+}
+
+/* קלטים (input, textarea) – מציגים את הסמן בצד ימין */
+input.rtl,
+textarea.rtl,
+input[dir="rtl"],
+textarea[dir="rtl"] {
+  direction: rtl;
+  text-align: right;
+}
+
+/* קוד (code, pre) – משמרים את כיוון הקוד, אך מאפשר RTL בטקסט רגיל */
+code.rtl,
+pre.rtl,
+code[dir="rtl"],
+pre[dir="rtl"] {
+  direction: rtl;
+  unicode-bidi: embed;
+}
+
+/* אפשרות לשינוי מהיר – unicode-bidi: isolate */
+.rtl.isolate,
+[dir="rtl"].isolate {
+  unicode-bidi: isolate;
+}
