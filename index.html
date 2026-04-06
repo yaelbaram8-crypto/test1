@@ -46,14 +46,17 @@
 
         <!-- Search/Add Section -->
         <section class="add-item-section">
-            <div class="input-group">
-                <input type="text" id="item-input" placeholder="מה חסר לכם?" autocomplete="off">
-                <div class="qty-control">
-                    <button id="qty-minus" class="qty-btn">−</button>
-                    <input type="number" id="qty-input" value="1" min="1" max="99" aria-label="כמות" title="כמות">
-                    <button id="qty-plus" class="qty-btn">+</button>
+            <div style="position:relative;">
+                <div class="input-group">
+                    <input type="text" id="item-input" placeholder="מה חסר לכם?" autocomplete="off">
+                    <div class="qty-control">
+                        <button id="qty-minus" class="qty-btn">−</button>
+                        <input type="number" id="qty-input" value="1" min="1" max="99" aria-label="כמות" title="כמות">
+                        <button id="qty-plus" class="qty-btn">+</button>
+                    </div>
+                    <button id="add-item-btn" class="btn btn-primary">הוספה</button>
                 </div>
-                <button id="add-item-btn" class="btn btn-primary">הוספה</button>
+                <div id="catalog-dropdown" class="catalog-dropdown"></div>
             </div>
         </section>
 

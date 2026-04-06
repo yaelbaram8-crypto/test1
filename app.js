@@ -22,6 +22,7 @@ class ShoppingApp {
         };
 
         this.viewMode = 'category'; // 'category' | 'all'
+        this.selectedCatalogProduct = null; // מוצר שנבחר מהקטלוג בעת הוספה
 
         // Initialize Supabase if keys provided
         if (SUPABASE_URL !== 'https://your-project-id.supabase.co') {
@@ -63,6 +64,19 @@ class ShoppingApp {
         this.addBtn.addEventListener('click', () => this.addItem());
         this.itemInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') this.addItem();
+        });
+
+        // Catalog autocomplete
+        this._catalogDebounce = null;
+        this.itemInput.addEventListener('input', () => {
+            this.selectedCatalogProduct = null; // איפוס בחירה קיימת בעת הקלדה חדשה
+            const q = this.itemInput.value.trim();
+            clearTimeout(this._catalogDebounce);
+            if (q.length < 2) { this._closeCatalogDropdown(); return; }
+            this._catalogDebounce = setTimeout(() => this._showCatalogDropdown(q), 300);
+        });
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.add-item-section')) this._closeCatalogDropdown();
         });
 
         // Quantity +/-
@@ -306,8 +320,22 @@ class ShoppingApp {
         const categoryId = this.detectCategory(text);
         const newItem = { text, completed: false, category_id: categoryId, quantity: qty };
 
+        // שמור מחיר אם נבחר מהקטלוג
+        const catalogProduct = this.selectedCatalogProduct;
+        this.selectedCatalogProduct = null;
+        this._closeCatalogDropdown();
+
+        const optimisticItem = { ...newItem, id: 'temp-' + Date.now(), created_at: new Date().toISOString() };
+        if (catalogProduct?.cheapest) {
+            optimisticItem.priceData = {
+                chain: catalogProduct.cheapest.chain_name,
+                price: parseFloat(catalogProduct.cheapest.price),
+                catalogLinked: true
+            };
+        }
+
         // Optimistic update
-        this.items.unshift({ ...newItem, id: 'temp-' + Date.now(), created_at: new Date().toISOString() });
+        this.items.unshift(optimisticItem);
         if (shouldRender) this.render();
 
         if (this.supabase) {
@@ -321,6 +349,49 @@ class ShoppingApp {
         if (manualText === null) { this.itemInput.value = ''; this.qtyInput.value = 1; }
     }
 
+
+    async _showCatalogDropdown(query) {
+        const dropdown = document.getElementById('catalog-dropdown');
+        if (!dropdown) return;
+        if (!this.supabase) { dropdown.innerHTML = ''; return; }
+
+        const { data: products } = await this.supabase.rpc('search_products', {
+            query_text: query, result_limit: 8
+        });
+        if (!products?.length) { dropdown.innerHTML = ''; return; }
+
+        // שלוף מחיר זול לכל מוצר
+        const rows = await Promise.all(products.map(async p => {
+            const { data: prices } = await this.supabase.rpc('get_product_prices', {
+                p_product_id: p.id
+            });
+            const cheapest = prices?.[0];
+            return { ...p, cheapest };
+        }));
+
+        dropdown.innerHTML = rows.map(p => `
+            <div class="catalog-option" data-id="${p.id}">
+                <span class="catalog-option-name">${p.product_name}</span>
+                ${p.cheapest
+                    ? `<span class="catalog-option-price">✨ ₪${Number(p.cheapest.price).toFixed(2)} ב${p.cheapest.chain_name}</span>`
+                    : `<span class="catalog-option-free">ללא מחיר</span>`}
+            </div>
+        `).join('');
+
+        dropdown.querySelectorAll('.catalog-option').forEach(el => {
+            el.addEventListener('click', () => {
+                const product = rows.find(p => p.id === el.dataset.id);
+                this.itemInput.value = product.product_name;
+                this.selectedCatalogProduct = product;
+                this._closeCatalogDropdown();
+            });
+        });
+    }
+
+    _closeCatalogDropdown() {
+        const dropdown = document.getElementById('catalog-dropdown');
+        if (dropdown) dropdown.innerHTML = '';
+    }
 
     detectCategory(text) {
         for (const [id, cat] of Object.entries(this.categories)) {
@@ -468,8 +539,32 @@ class ShoppingApp {
             }).join('');
         }
 
+        this._renderCartTotal();
         this.bindSwipeGestures();
         this.renderSmartSuggestions();
+    }
+
+    _renderCartTotal() {
+        const activeItems = this.items.filter(i => !i.completed);
+        const withPrice = activeItems.filter(i => i.priceData?.price);
+        const total = withPrice.reduce((sum, i) => sum + i.priceData.price * (i.quantity || 1), 0);
+
+        // הסר כל סכום קודם
+        document.getElementById('cart-total-row')?.remove();
+        if (!withPrice.length) return;
+
+        const isPartial = withPrice.length < activeItems.length;
+        const row = document.createElement('div');
+        row.id = 'cart-total-row';
+        row.className = 'cart-total';
+        row.innerHTML = `
+            <div>
+                <div class="cart-total-label">סה"כ צפוי</div>
+                ${isPartial ? `<div class="cart-total-partial">(${withPrice.length} מתוך ${activeItems.length} פריטים עם מחיר)</div>` : ''}
+            </div>
+            <span class="cart-total-amount">₪${total.toFixed(2)}</span>
+        `;
+        this.listContainer.appendChild(row);
     }
 
     async fetchPopularItems() {
