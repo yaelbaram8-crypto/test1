@@ -717,9 +717,10 @@ input[type="text"]::placeholder {
     font-style: italic;
 }
 
-/* Responsive */
+/* ── Tablet (600px+) ── */
 @media (min-width: 600px) {
     .app-container {
+        max-width: 480px;
         box-shadow: 0 0 100px rgba(0,0,0,0.05);
         border-radius: 32px;
         margin: 20px auto;
@@ -727,9 +728,80 @@ input[type="text"]::placeholder {
         position: relative;
         overflow: hidden;
     }
-    
+
     .bottom-nav {
         position: absolute;
         padding-bottom: 15px;
+    }
+}
+
+/* ── Desktop (1024px+) ── */
+@media (min-width: 1024px) {
+    body {
+        background: #f1f5f9;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 40px 20px;
+        min-height: 100vh;
+    }
+
+    .app-container {
+        max-width: 1100px;
+        width: 100%;
+        height: auto;
+        min-height: calc(100vh - 80px);
+        border-radius: 24px;
+        display: grid;
+        grid-template-columns: 340px 1fr;
+        grid-template-rows: auto 1fr auto;
+        overflow: visible;
+    }
+
+    .main-header {
+        grid-column: 1 / -1;
+    }
+
+    .add-item-section {
+        grid-column: 1;
+        grid-row: 2;
+        border-left: 1px solid #f1f5f9;
+        position: sticky;
+        top: 0;
+    }
+
+    .content-area {
+        grid-column: 1 / -1;
+        grid-row: 3;
+        overflow-y: auto;
+        padding-bottom: 80px;
+    }
+
+    /* בדסקטופ — הצג content area בכל העמודות */
+    #shopping-list-container,
+    #stats-container,
+    #history-container,
+    #prices-container {
+        max-width: 800px;
+        margin: 0 auto;
+        width: 100%;
+    }
+
+    .bottom-nav {
+        grid-column: 1 / -1;
+        position: sticky;
+        bottom: 0;
+        border-radius: 0 0 24px 24px;
+    }
+
+    /* מחירים — פאנל רחב יותר בדסקטופ */
+    .price-panel {
+        max-width: 600px;
+        margin: 0 auto;
+    }
+
+    .price-search-wrapper {
+        max-width: 600px;
+        margin: 0 auto;
     }
 }

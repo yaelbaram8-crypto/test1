@@ -693,7 +693,12 @@ class PriceCompareModule {
             const { data, error } = await this.supabase.rpc('search_products', {
                 query_text: query, result_limit: 20
             });
-            results = (error || !data) ? this._mockSearch(query) : data;
+            if (error) {
+                console.error('search_products RPC error:', error);
+                dropdown.innerHTML = `<div class="price-result-empty">שגיאת חיפוש — נסו שוב</div>`;
+                return;
+            }
+            results = data ?? [];
         } else {
             if (!navigator.onLine) this._offlineBanner();
             results = this._mockSearch(query);
@@ -734,7 +739,8 @@ class PriceCompareModule {
                 this.supabase.rpc('get_product_prices', { p_product_id: product.id }),
                 this.supabase.from('supermarket_chains').select('chain_name')
             ]);
-            prices = (pricesRes.error || !pricesRes.data) ? this._mockPrices(product.id) : pricesRes.data;
+            if (pricesRes.error) console.error('get_product_prices RPC error:', pricesRes.error);
+            prices = pricesRes.data ?? [];
             allChains = chainsRes.data?.map(c => c.chain_name) ?? [];
         } else {
             await new Promise(r => setTimeout(r, 350));
