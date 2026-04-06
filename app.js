@@ -3,9 +3,9 @@
  * No-Build Architecture using ES Modules
  */
 
-// Supabase Configuration - REPLACE WITH YOUR PROJECT DETAILS
-const SUPABASE_URL = 'https://your-project-id.supabase.co';
-const SUPABASE_KEY = 'your-anon-key-here';
+// Supabase Configuration - loaded from config.js (see config.example.js)
+const SUPABASE_URL = window.SUPABASE_URL;
+const SUPABASE_KEY = window.SUPABASE_KEY;
 
 class ShoppingApp {
     constructor() {
