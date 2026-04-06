@@ -23,11 +23,23 @@ jobs:
           node-version: '20'
 
       - name: Install Dependencies
-        run: npm install @supabase/supabase-js
-          
+        run: npm install
+
       - name: Run Price Sync Script
         env:
-          # מכניסים כאן בתור משתני סביבה את הסודות שיוגדרו בגיטהאב
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # --- Cerberus (url.publishedprices.co.il) ---
+          # הרשמה חינמית לכל רשת בנפרד בפורטל שלהם
+          RAMI_LEVY_USER: ${{ secrets.RAMI_LEVY_USER }}
+          RAMI_LEVY_PASS: ${{ secrets.RAMI_LEVY_PASS }}
+          VICTORY_USER: ${{ secrets.VICTORY_USER }}
+          VICTORY_PASS: ${{ secrets.VICTORY_PASS }}
+          KESHET_TAAMIM_USER: ${{ secrets.KESHET_TAAMIM_USER }}
+          KESHET_TAAMIM_PASS: ${{ secrets.KESHET_TAAMIM_PASS }}
+          YEINOT_BITAN_USER: ${{ secrets.YEINOT_BITAN_USER }}
+          YEINOT_BITAN_PASS: ${{ secrets.YEINOT_BITAN_PASS }}
+          STOP_MARKET_USER: ${{ secrets.STOP_MARKET_USER }}
+          STOP_MARKET_PASS: ${{ secrets.STOP_MARKET_PASS }}
+          # שאר הרשתות (טיב טעם, חצי חינם וכו') - ללא credentials, יעבדו אוטומטית
         run: node sync-prices.mjs

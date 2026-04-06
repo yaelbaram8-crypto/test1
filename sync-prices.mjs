@@ -1,110 +1,336 @@
 import { createClient } from '@supabase/supabase-js';
+import { gunzipSync } from 'zlib';
+import { XMLParser } from 'fast-xml-parser';
 
 /**
  * =======================================================
- * Grocery Price Sync Job (Node.js) 
- * מיועד להרצה יומית דרך GitHub Actions (חינמי)
+ * Grocery Price Sync Job (Node.js)
+ * מושך מחירים אמיתיים מכל הרשתות הגדולות בישראל
+ * (חובת פרסום XML לפי חוק שקיפות מחירים תש"ע-2010)
  * =======================================================
- * 
- * To run locally:
- * 1. npm install @supabase/supabase-js
- * 2. node sync-prices.js
+ *
+ * פלטפורמות:
+ *   shufersal    - פורטל ייעודי של שופרסל
+ *   cerberus     - url.publishedprices.co.il  (כניסה עם משתמש/סיסמה לכל רשת)
+ *   generic_html - HTML listing page עם קישורים לקבצי GZ
  */
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'YOUR_SUPABASE_URL';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SERVICE_KEY'; 
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+    console.error('❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+    process.exit(1);
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const xmlParser = new XMLParser({ ignoreAttributes: false, parseTagValue: true, trimValues: true });
 
-const TARGET_CHAINS = [
-    { name: 'שופרסל', platform: 'shufersal', base_url: 'http://prices.shufersal.co.il' },
-    { name: 'רמי לוי', platform: 'cerberus', base_url: 'https://url.publishedprices.co.il/login' }
+// =========================================================
+// רישום כל הרשתות
+// כל רשת מסמנת את הפלטפורמה שלה ואת פרטי הגישה
+// =========================================================
+const CHAINS = [
+    // --- פלטפורמה ייעודית ---
+    {
+        name: 'שופרסל',
+        platform: 'shufersal',
+        listUrl: 'http://prices.shufersal.co.il/FileObject/UpdateCategory?catID=2&storeId=0&page=1',
+        fileBaseUrl: 'http://prices.shufersal.co.il'
+    },
+
+    // --- פלטפורמת Cerberus (כל רשת עם credentials נפרדים) ---
+    {
+        name: 'רמי לוי',
+        platform: 'cerberus',
+        user: process.env.RAMI_LEVY_USER,
+        pass: process.env.RAMI_LEVY_PASS
+    },
+    {
+        name: 'ויקטורי',
+        platform: 'cerberus',
+        user: process.env.VICTORY_USER,
+        pass: process.env.VICTORY_PASS
+    },
+    {
+        name: 'קשת טעמים',
+        platform: 'cerberus',
+        user: process.env.KESHET_TAAMIM_USER,
+        pass: process.env.KESHET_TAAMIM_PASS
+    },
+    {
+        name: 'יינות ביתן',
+        platform: 'cerberus',
+        user: process.env.YEINOT_BITAN_USER,
+        pass: process.env.YEINOT_BITAN_PASS
+    },
+    {
+        name: 'סטופ מרקט',
+        platform: 'cerberus',
+        user: process.env.STOP_MARKET_USER,
+        pass: process.env.STOP_MARKET_PASS
+    },
+
+    // --- פלטפורמות עצמאיות (ללא login, HTML listing) ---
+    {
+        name: 'טיב טעם',
+        platform: 'generic_html',
+        listUrl: 'http://www.tivtaam.co.il/openformat/'
+    },
+    {
+        name: 'חצי חינם',
+        platform: 'generic_html',
+        listUrl: 'http://halfprice.co.il/xml/'
+    },
+    {
+        name: 'אושר עד',
+        platform: 'generic_html',
+        listUrl: 'http://osherad.co.il/xml/'
+    },
+    {
+        name: 'נתיב החסד',
+        platform: 'generic_html',
+        listUrl: 'http://netivhachesed.co.il/xml/'
+    },
+    {
+        name: 'יוחננוף',
+        platform: 'generic_html',
+        listUrl: 'http://yochananof.co.il/xml/'
+    },
+    {
+        name: 'מחסני השוק',
+        platform: 'generic_html',
+        listUrl: 'http://mahsaneyhashouk.co.il/xml/'
+    },
 ];
 
-async function syncPrices() {
-    console.log("🛒 Starting Daily Grocery Price Sync...");
+// =========================================================
+// Fetchers לפי פלטפורמה
+// =========================================================
 
-    for (const chain of TARGET_CHAINS) {
-        console.log(`\n⏳ Fetching data for chain: ${chain.name} (${chain.platform})...`);
-        
-        try {
-            // ==========================================================
-            // שלב 1: בקשת קבצי ה-XML השקופים מהסופרמרקט
-            // במערכת מקושרת ל-MCP/Skill הגישה מבוצעת דרך הסקרייפר שלנו
-            // פה בארכיטקטורה נמצא הלוגיקה שתמשוך לתוך הזיכרון.
-            // ==========================================================
-            
-            // let xmlData = await fetch(chain.base_url + '/some/xml/path.gz');
-            // let parsedProducts = await parseXml(xmlData);
-            
-            // "Mocking" the heavy parsing for demo. In production, this returns ~15,000 items.
-            const parsedProducts = [
-                { barcode: '7290000000010', name: 'חלב תנובה 3% בקרטון 1 ליטר', price: 6.20, is_promotional: false },
-                { barcode: '7290000000020', name: 'לחם אחיד פרוס אנג\'ל', price: 7.90, is_promotional: true },
-                { barcode: '7290000000030', name: 'גבינה צהובה עמק 28%', price: 15.50, is_promotional: false },
-                { barcode: '7290000000040', name: 'ביצים L תריסר מוקרן', price: 13.90, is_promotional: false }
-            ];
+/** שופרסל - HTML עם links לקבצי GZ */
+async function fetchShufersal(chain) {
+    const res = await fetch(chain.listUrl, { signal: AbortSignal.timeout(30000) });
+    const html = await res.text();
+    const matches = [...html.matchAll(/href="([^"]*PriceFull[^"]*\.gz)"/gi)];
+    if (!matches.length) throw new Error('לא נמצאו קבצי PriceFull ב-Shufersal');
+    const href = matches[0][1];
+    // ה-hrefs עשויים להיות מוחלטים (Azure Blob) או יחסיים
+    const fileUrl = href.startsWith('http') ? href : chain.fileBaseUrl + href;
+    console.log(`  ⬇️  ${fileUrl}`);
+    return fetchAndParseXml(fileUrl);
+}
 
-            // Add random variance for the demo to show price competition
-            parsedProducts.forEach(p => p.price = parseFloat((p.price * (Math.random() * 0.2 + 0.9)).toFixed(2)));
-
-            console.log(`✅ Parsed ${parsedProducts.length} items from ${chain.name}`);
-
-            // ==========================================================
-            // שלב 2: רישום או שליפה מ-Supabase (Upsert ל- Chains)
-            // ==========================================================
-            let { data: chainData, error: errChain } = await supabase
-                .from('supermarket_chains')
-                .select('id')
-                .eq('chain_name', chain.name)
-                .single();
-
-            if (errChain || !chainData) {
-                const res = await supabase.from('supermarket_chains').insert({ chain_name: chain.name }).select('id').single();
-                chainData = res.data;
-            }
-
-            // ==========================================================
-            // שלב 3: הזרקת המוצרים ל-Products Cache והמחירים ל-Prices
-            // עבודה מול מאגר עצום דורשת שמירה קבוצתית בייצור (Batches)
-            // ==========================================================
-            for (const product of parsedProducts) {
-                // שמירת/שליפת המוצר המשותף
-                let { data: prodData } = await supabase
-                    .from('market_products')
-                    .select('id')
-                    .eq('barcode', product.barcode)
-                    .single();
-
-                if (!prodData) {
-                    const res = await supabase.from('market_products').insert({
-                        barcode: product.barcode,
-                        product_name: product.name,
-                        category_id: 'auto-synced'
-                    }).select('id').single();
-                    prodData = res.data;
-                }
-
-                // עדכון המחיר הספציפי בחנות
-                if (prodData && prodData.id && chainData.id) {
-                    await supabase.from('market_prices').upsert({
-                        product_id: prodData.id,
-                        chain_id: chainData.id,
-                        price: product.price,
-                        is_promotional: product.is_promotional,
-                        scraped_at: new Date().toISOString()
-                    }, { onConflict: 'product_id,chain_id' });
-                }
-            }
-
-            console.log(`✅ Completely synced prices for ${chain.name} into Supabase.`);
-
-        } catch (error) {
-            console.error(`❌ Failed to sync ${chain.name}:`, error);
-        }
+/** Cerberus - login + רשימת קבצי JSON + הורדת PriceFull אחרון */
+async function fetchCerberus(chain) {
+    if (!chain.user || !chain.pass) {
+        throw new Error(`חסרים env vars: ${chain.name.toUpperCase().replace(/ /g, '_')}_USER / _PASS`);
     }
 
-    console.log("\n🎉 Sync Complete! Supabase Database is up to date.");
+    // Login
+    const loginRes = await fetch('https://url.publishedprices.co.il/login/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `username=${encodeURIComponent(chain.user)}&password=${encodeURIComponent(chain.pass)}`,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(30000)
+    });
+    const cookie = loginRes.headers.get('set-cookie')?.split(';')[0];
+    if (!cookie) throw new Error(`Login נכשל עבור ${chain.name}`);
+
+    // רשימת קבצים
+    const dirRes = await fetch('https://url.publishedprices.co.il/file/json/dir', {
+        headers: { Cookie: cookie },
+        signal: AbortSignal.timeout(30000)
+    });
+    const files = await dirRes.json();
+    const priceFiles = files
+        .filter(f => f.name?.startsWith('PriceFull'))
+        .sort((a, b) => (b.last_modified ?? '').localeCompare(a.last_modified ?? ''));
+
+    if (!priceFiles.length) throw new Error(`לא נמצאו קבצי PriceFull עבור ${chain.name}`);
+
+    const fileUrl = `https://url.publishedprices.co.il/file/d/${priceFiles[0].name}`;
+    console.log(`  ⬇️  ${fileUrl}`);
+    return fetchAndParseXml(fileUrl, { Cookie: cookie });
+}
+
+/** Generic HTML - מחפש קישורי GZ בדף רשימת קבצים */
+async function fetchGenericHtml(chain) {
+    const res = await fetch(chain.listUrl, { signal: AbortSignal.timeout(30000) });
+    const html = await res.text();
+
+    // מחפש href שמצביע על קובץ PriceFull GZ
+    const matches = [...html.matchAll(/href="([^"]*PriceFull[^"]*\.gz)"/gi)];
+    if (!matches.length) throw new Error(`לא נמצאו קבצי PriceFull ב-${chain.name} (${chain.listUrl})`);
+
+    // הופך URL יחסי למוחלט
+    const href = matches[0][1];
+    const fileUrl = href.startsWith('http') ? href : new URL(href, chain.listUrl).toString();
+    console.log(`  ⬇️  ${fileUrl}`);
+    return fetchAndParseXml(fileUrl);
+}
+
+// =========================================================
+// פרסור XML - פורמט ישראלי סטנדרטי (כולל וריאציות)
+// =========================================================
+async function fetchAndParseXml(url, headers = {}) {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(120000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status} בהורדת ${url}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    const xmlBuf = url.endsWith('.gz') || url.includes('.gz?') ? gunzipSync(buf) : buf;
+    return xmlParser.parse(xmlBuf.toString('utf8'));
+}
+
+function extractProducts(parsed) {
+    const root = parsed.root ?? parsed.Root ?? parsed.Prices ?? parsed.Catalog ?? Object.values(parsed)[0];
+    const itemsNode = root?.Items ?? root?.Products ?? root?.Catalog;
+    const rawItems = itemsNode?.Item ?? itemsNode?.Product ?? [];
+    const items = Array.isArray(rawItems) ? rawItems : [rawItems];
+
+    const products = [];
+    for (const item of items) {
+        const barcode = String(item.ItemCode ?? item.Barcode ?? item.ManufacturerItemCode ?? '').trim();
+        const price = parseFloat(item.ItemPrice ?? item.Price ?? item.UnitPrice ?? 0);
+        if (!barcode || price <= 0) continue;
+        products.push({
+            barcode,
+            name: String(item.ItemName ?? item.ProductName ?? item.ManufacturerItemDescription ?? '').trim(),
+            brand: String(item.ManufacturerName ?? item.Brand ?? '').trim(),
+            price,
+            unit: String(item.UnitOfMeasure ?? '').trim(),
+            is_promotional: false
+        });
+    }
+    return products;
+}
+
+// =========================================================
+// Supabase - batch upsert
+// =========================================================
+async function getOrCreateChain(name) {
+    let { data } = await supabase
+        .from('supermarket_chains')
+        .select('id')
+        .eq('chain_name', name)
+        .single();
+
+    if (!data) {
+        const res = await supabase
+            .from('supermarket_chains')
+            .insert({ chain_name: name })
+            .select('id')
+            .single();
+        data = res.data;
+    }
+    return data.id;
+}
+
+async function upsertProducts(products, chainId) {
+    const BATCH = 500;
+    let updated = 0;
+
+    // upsert מוצרים
+    for (let i = 0; i < products.length; i += BATCH) {
+        const { error } = await supabase
+            .from('market_products')
+            .upsert(
+                products.slice(i, i + BATCH).map(p => ({
+                    barcode: p.barcode,
+                    product_name: p.name,
+                    brand: p.brand || null,
+                    category_id: 'auto-synced'
+                })),
+                { onConflict: 'barcode', ignoreDuplicates: false }
+            );
+        if (error) console.warn(`  ⚠️  upsert products:`, error.message);
+    }
+
+    // שולף IDs
+    const barcodes = products.map(p => p.barcode);
+    const productIdMap = new Map();
+    for (let i = 0; i < barcodes.length; i += BATCH) {
+        const { data } = await supabase
+            .from('market_products')
+            .select('id, barcode')
+            .in('barcode', barcodes.slice(i, i + BATCH));
+        (data ?? []).forEach(r => productIdMap.set(r.barcode, r.id));
+    }
+
+    // upsert מחירים
+    const priceRows = products
+        .filter(p => productIdMap.has(p.barcode))
+        .map(p => ({
+            product_id: productIdMap.get(p.barcode),
+            chain_id: chainId,
+            price: p.price,
+            is_promotional: p.is_promotional,
+            scraped_at: new Date().toISOString()
+        }));
+
+    for (let i = 0; i < priceRows.length; i += BATCH) {
+        const { error } = await supabase
+            .from('market_prices')
+            .upsert(priceRows.slice(i, i + BATCH), { onConflict: 'product_id,chain_id' });
+        if (error) console.warn(`  ⚠️  upsert prices:`, error.message);
+        else updated += Math.min(BATCH, priceRows.length - i);
+    }
+
+    return updated;
+}
+
+// =========================================================
+// Main
+// =========================================================
+async function syncChain(chain) {
+    let parsed;
+    switch (chain.platform) {
+        case 'shufersal':   parsed = await fetchShufersal(chain); break;
+        case 'cerberus':    parsed = await fetchCerberus(chain);  break;
+        case 'generic_html': parsed = await fetchGenericHtml(chain); break;
+        default: throw new Error(`פלטפורמה לא מוכרת: ${chain.platform}`);
+    }
+
+    const products = extractProducts(parsed);
+    if (!products.length) throw new Error('פורסרו 0 מוצרים - בדוק פורמט XML');
+    console.log(`  ✅ פורסרו ${products.length.toLocaleString()} מוצרים`);
+
+    const chainId = await getOrCreateChain(chain.name);
+    const count = await upsertProducts(products, chainId);
+    console.log(`  ✅ עודכנו ${count.toLocaleString()} מחירים ב-Supabase`);
+}
+
+async function syncPrices() {
+    console.log('🛒 Starting Daily Grocery Price Sync...\n');
+    const results = { ok: [], failed: [] };
+
+    for (const chain of CHAINS) {
+        console.log(`⏳ ${chain.name} (${chain.platform})...`);
+        try {
+            await syncChain(chain);
+            results.ok.push(chain.name);
+        } catch (err) {
+            console.error(`❌ ${chain.name} נכשל: ${err.message}`);
+            results.failed.push(chain.name);
+        }
+        console.log('');
+    }
+
+    console.log('─'.repeat(50));
+    console.log(`✅ הצליחו (${results.ok.length}): ${results.ok.join(', ')}`);
+    if (results.failed.length) {
+        console.log(`❌ נכשלו (${results.failed.length}): ${results.failed.join(', ')}`);
+    }
+
+    // ספירת סך הכל בדאטה בייס
+    const [{ count: totalProducts }, { count: totalPrices }] = await Promise.all([
+        supabase.from('market_products').select('*', { count: 'exact', head: true }),
+        supabase.from('market_prices').select('*', { count: 'exact', head: true })
+    ]);
+    console.log('\n📊 סטטוס דאטה בייס:');
+    console.log(`   מוצרים ייחודיים:  ${(totalProducts ?? 0).toLocaleString()}`);
+    console.log(`   רשומות מחיר:      ${(totalPrices ?? 0).toLocaleString()}`);
+    console.log('🎉 Sync Complete!');
 }
 
 syncPrices();
