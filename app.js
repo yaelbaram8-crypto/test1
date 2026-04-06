@@ -728,21 +728,23 @@ class PriceCompareModule {
         const panel = document.getElementById('price-panel');
         panel.innerHTML = this._skeletonHTML();
 
-        let prices;
+        let prices, allChains = [];
         if (this.supabase && navigator.onLine) {
-            const { data, error } = await this.supabase.rpc('get_product_prices', {
-                p_product_id: product.id
-            });
-            prices = (error || !data) ? this._mockPrices(product.id) : data;
+            const [pricesRes, chainsRes] = await Promise.all([
+                this.supabase.rpc('get_product_prices', { p_product_id: product.id }),
+                this.supabase.from('supermarket_chains').select('chain_name')
+            ]);
+            prices = (pricesRes.error || !pricesRes.data) ? this._mockPrices(product.id) : pricesRes.data;
+            allChains = chainsRes.data?.map(c => c.chain_name) ?? [];
         } else {
-            await new Promise(r => setTimeout(r, 350)); // ריאליזם בskeleton
+            await new Promise(r => setTimeout(r, 350));
             prices = this._mockPrices(product.id);
         }
 
-        this._renderPricePanel(prices);
+        this._renderPricePanel(prices, allChains);
     }
 
-    _renderPricePanel(prices) {
+    _renderPricePanel(prices, allChains = []) {
         const panel = document.getElementById('price-panel');
 
         // edge case: אין מחירים
@@ -802,6 +804,22 @@ class PriceCompareModule {
 
             <div class="price-freshness">${formatFreshness(cheapest.scraped_at)}</div>
             ${isStale ? '<div class="price-stale-warning">⚠️ נתונים ישנים מעל 48 שעות — ייתכן שהמחירים השתנו</div>' : ''}
+
+            ${(() => {
+                const syncedNames = new Set(prices.map(p => p.chain_name));
+                const unsynced = allChains.filter(c => !syncedNames.has(c));
+                if (!unsynced.length) return '';
+                return `
+                <div class="price-unsynced-section">
+                    <div class="price-unsynced-title">⏳ טרם בוצע סינכרון</div>
+                    ${unsynced.map(c => `
+                        <div class="price-row price-unsynced-row">
+                            <span class="price-chain-name">${c}</span>
+                            <span class="price-unsynced-label">לא זמין</span>
+                        </div>
+                    `).join('')}
+                </div>`;
+            })()}
         `;
     }
 
