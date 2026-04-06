@@ -158,7 +158,13 @@ class ShoppingApp {
             console.error("Error fetching items:", error);
             this.loadLocalData();
         } else {
-            this.items = data || [];
+            // שמר priceData קיים (לא נשמר ב-DB) לפי id ולפי טקסט
+            const priceCache = new Map();
+            this.items.forEach(i => { if (i.priceData) priceCache.set(i.id, i.priceData); });
+            this.items = (data || []).map(i => ({
+                ...i,
+                priceData: priceCache.get(i.id) || null
+            }));
         }
     }
 
