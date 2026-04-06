@@ -193,3 +193,78 @@ CREATE POLICY "Public access prices"   ON market_prices      FOR ALL USING (true
 -- הוספת שדה לחיבור היסטוריית רכישות לרשת השיווק הספציפית
 ALTER TABLE purchase_history
     ADD COLUMN IF NOT EXISTS chain_id UUID REFERENCES supermarket_chains(id) ON DELETE SET NULL;
+
+-- ===================================================
+-- PHASE 4: Price Comparison Module — Full-Text Search
+-- הרץ את הקוד הזה נפרד לאחר Phase 3
+-- ===================================================
+
+-- 13. הפעלת תוסף trigram לחיפוש דמיון בעברית
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- 14. GIN index על שם המוצר ועל המותג (מאפשר similarity queries מהירים)
+CREATE INDEX IF NOT EXISTS idx_market_products_name_trgm
+    ON market_products USING GIN (product_name gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_market_products_brand_trgm
+    ON market_products USING GIN (brand gin_trgm_ops);
+
+-- 15. RPC: חיפוש מוצרים לפי טקסט חופשי — מדורג לפי דמיון
+--     קריאה: supabase.rpc('search_products', { query_text: 'חלב', result_limit: 20 })
+CREATE OR REPLACE FUNCTION search_products(
+    query_text   TEXT,
+    result_limit INT DEFAULT 20
+)
+RETURNS TABLE (
+    id           UUID,
+    barcode      TEXT,
+    product_name TEXT,
+    brand        TEXT,
+    category_id  TEXT,
+    similarity   REAL
+)
+LANGUAGE SQL STABLE AS $$
+    SELECT
+        mp.id,
+        mp.barcode,
+        mp.product_name,
+        mp.brand,
+        mp.category_id,
+        -- ניקוד משולב: שם מוצר 70%, מותג 30%
+        (
+            similarity(mp.product_name, query_text) * 0.7
+            + COALESCE(similarity(mp.brand, query_text), 0) * 0.3
+        )::REAL AS similarity
+    FROM market_products mp
+    WHERE
+        mp.product_name % query_text
+        OR mp.brand % query_text
+        OR mp.product_name ILIKE '%' || query_text || '%'
+    ORDER BY similarity DESC
+    LIMIT result_limit;
+$$;
+
+-- 16. RPC: שליפת מחירי כל הרשתות למוצר בודד, ממוין מהזול ליקר
+--     קריאה: supabase.rpc('get_product_prices', { p_product_id: '...' })
+CREATE OR REPLACE FUNCTION get_product_prices(p_product_id UUID)
+RETURNS TABLE (
+    chain_id       UUID,
+    chain_name     TEXT,
+    logo_url       TEXT,
+    price          NUMERIC,
+    is_promotional BOOLEAN,
+    scraped_at     TIMESTAMPTZ
+)
+LANGUAGE SQL STABLE AS $$
+    SELECT
+        sc.id          AS chain_id,
+        sc.chain_name,
+        sc.logo_url,
+        mpr.price,
+        mpr.is_promotional,
+        mpr.scraped_at
+    FROM market_prices mpr
+    JOIN supermarket_chains sc ON sc.id = mpr.chain_id
+    WHERE mpr.product_id = p_product_id
+    ORDER BY mpr.price ASC;
+$$;
