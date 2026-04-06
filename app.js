@@ -28,6 +28,7 @@ class ShoppingApp {
             this.supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         }
 
+        this.priceModule = new PriceCompareModule();
         this.init();
     }
 
@@ -38,6 +39,7 @@ class ShoppingApp {
         await this.fetchItems();
         this.setupRealtime();
         this.render();
+        this.priceModule.init(this.supabase);
         console.log("🚀 Shopping App Initialized with Supabase");
     }
 
@@ -120,6 +122,10 @@ class ShoppingApp {
             this.historyContainer.style.display = 'block';
             this.suggestionsContainer.style.display = 'none';
             this.renderHistory();
+        } else if (viewName === 'prices') {
+            document.getElementById('prices-container').style.display = 'block';
+            this.suggestionsContainer.style.display = 'none';
+            this.priceModule.show();
         }
     }
 
@@ -569,6 +575,294 @@ class ShoppingApp {
     }
 
 }
+
+// ─────────────────────────────────────────────────────────────
+// Price Compare Module
+// שלב נוכחי: mock data — יוחלף ב-Supabase RPCs בשלב 9
+// ─────────────────────────────────────────────────────────────
+class PriceCompareModule {
+
+    init(supabaseClient) {
+        this.supabase = supabaseClient || null;
+        this.container = document.getElementById('prices-container');
+        this.debounceTimer = null;
+        this.selectedProduct = null;
+    }
+
+    show() {
+        this._renderSearchView();
+    }
+
+    // ── תצוגת חיפוש ──────────────────────────────────────────
+    _renderSearchView() {
+        this.container.innerHTML = `
+            <div class="price-search-wrapper">
+                <div class="price-search-bar">
+                    <input id="price-search-input" type="text" inputmode="search"
+                           placeholder="חפשו מוצר... (למשל: חלב, לחם)"
+                           autocomplete="off" autocorrect="off">
+                    <button id="price-barcode-btn" class="btn btn-secondary" aria-label="סריקת ברקוד">
+                        <span class="icon">📷</span>
+                    </button>
+                </div>
+                <div id="price-results-dropdown" class="price-results-dropdown"></div>
+            </div>
+            <div id="price-panel" class="price-panel"></div>
+        `;
+
+        document.getElementById('price-search-input')
+            .addEventListener('input', () => this._onSearchInput());
+        document.getElementById('price-barcode-btn')
+            .addEventListener('click', () => this._onBarcodeClick());
+    }
+
+    // ── חיפוש טקסט ───────────────────────────────────────────
+    _onSearchInput() {
+        clearTimeout(this.debounceTimer);
+        const query = document.getElementById('price-search-input').value.trim();
+        const dropdown = document.getElementById('price-results-dropdown');
+
+        if (query.length < 2) {
+            dropdown.innerHTML = '';
+            return;
+        }
+        this.debounceTimer = setTimeout(() => this._runSearch(query), 350);
+    }
+
+    async _runSearch(query) {
+        const dropdown = document.getElementById('price-results-dropdown');
+        dropdown.innerHTML = `<div class="price-result-loading">מחפש...</div>`;
+
+        // TODO שלב 9: החלף ב- this.supabase.rpc('search_products', { query_text: query, result_limit: 20 })
+        await new Promise(r => setTimeout(r, 300)); // סימולציית latency
+        const results = this._mockSearch(query);
+
+        if (!results.length) {
+            dropdown.innerHTML = `<div class="price-result-empty">לא נמצאו מוצרים עבור "${query}"</div>`;
+            return;
+        }
+
+        dropdown.innerHTML = results.map(p => `
+            <div class="price-result-item" data-id="${p.id}">
+                <div class="price-result-name">${p.product_name}</div>
+                <div class="price-result-brand">${p.brand || ''}</div>
+            </div>
+        `).join('');
+
+        dropdown.querySelectorAll('.price-result-item').forEach(el => {
+            el.addEventListener('click', () => {
+                const product = results.find(p => p.id === el.dataset.id);
+                this._onProductSelected(product);
+            });
+        });
+    }
+
+    // ── בחירת מוצר → טעינת מחירים ────────────────────────────
+    async _onProductSelected(product) {
+        this.selectedProduct = product;
+        document.getElementById('price-search-input').value = product.product_name;
+        document.getElementById('price-results-dropdown').innerHTML = '';
+
+        const panel = document.getElementById('price-panel');
+        panel.innerHTML = `<div class="price-loading">טוען מחירים...</div>`;
+
+        // TODO שלב 9: החלף ב- this.supabase.rpc('get_product_prices', { p_product_id: product.id })
+        await new Promise(r => setTimeout(r, 400));
+        const prices = this._mockPrices(product.id);
+
+        this._renderPricePanel(prices);
+    }
+
+    _renderPricePanel(prices) {
+        const panel = document.getElementById('price-panel');
+        if (!prices.length) {
+            panel.innerHTML = `<div class="empty-state"><p>אין מחירים זמינים לעת עתה.</p><small>המאגר מתעדכן כל לילה</small></div>`;
+            return;
+        }
+
+        const cheapest = prices[0]; // ממוין ASC מה-mock/SQL
+        const rest = prices.slice(1);
+
+        const formatFreshness = (iso) => {
+            const h = Math.round((Date.now() - new Date(iso)) / 3600000);
+            return h < 1 ? 'עודכן זה עתה' : h < 24 ? `עודכן לפני ${h} שעות` : `עודכן לפני ${Math.floor(h/24)} ימים`;
+        };
+
+        panel.innerHTML = `
+            <div class="price-panel-header">
+                <div>
+                    <div class="price-panel-title">${this.selectedProduct.product_name}</div>
+                    <div class="price-panel-meta">ברקוד: ${this.selectedProduct.barcode} &nbsp;·&nbsp; ${prices.length} רשתות</div>
+                </div>
+                <button class="btn btn-primary price-add-btn"
+                        onclick="window.app.addItem('${this.selectedProduct.product_name.replace(/'/g, "\\'")}')">
+                    + הוסף לרשימה
+                </button>
+            </div>
+
+            <div class="price-cheapest-label">🏆 הכי זול</div>
+            <div class="price-cheapest-card">
+                <span class="price-chain-name">${cheapest.chain_name}</span>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    ${cheapest.is_promotional ? '<span class="price-promo-badge">מבצע</span>' : ''}
+                    <span class="price-amount cheapest">₪${Number(cheapest.price).toFixed(2)}</span>
+                </div>
+            </div>
+
+            ${rest.length ? `
+            <div class="price-rest-label">שאר הרשתות</div>
+            <div class="price-rest-list">
+                ${rest.map(p => `
+                    <div class="price-row">
+                        <span class="price-chain-name">${p.chain_name}</span>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            ${p.is_promotional ? '<span class="price-promo-badge">מבצע</span>' : ''}
+                            <span class="price-amount">₪${Number(p.price).toFixed(2)}</span>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>` : ''}
+
+            <div class="price-freshness">${formatFreshness(cheapest.scraped_at)}</div>
+        `;
+    }
+
+    // ── ברקוד ─────────────────────────────────────────────────
+    async _onBarcodeClick() {
+        if ('BarcodeDetector' in window) {
+            this._scanWithNativeDetector();
+        } else {
+            this._scanWithFileInput();
+        }
+    }
+
+    _scanWithNativeDetector() {
+        // BarcodeDetector API — Chrome/Android, ללא ספריות נוספות
+        const video = document.createElement('video');
+        video.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:9999;';
+        document.body.appendChild(video);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '✕ סגור';
+        closeBtn.style.cssText = 'position:fixed;top:16px;left:16px;z-index:10000;background:rgba(0,0,0,0.6);color:white;border:none;padding:10px 16px;border-radius:20px;font-size:1rem;cursor:pointer;';
+        document.body.appendChild(closeBtn);
+
+        const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+        let stream;
+
+        const cleanup = () => {
+            cancelAnimationFrame(rafId);
+            stream?.getTracks().forEach(t => t.stop());
+            video.remove();
+            closeBtn.remove();
+        };
+        closeBtn.addEventListener('click', cleanup);
+
+        let rafId;
+        const scan = async () => {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                const barcodes = await detector.detect(video).catch(() => []);
+                if (barcodes.length) {
+                    cleanup();
+                    await this._lookupByBarcode(barcodes[0].rawValue);
+                    return;
+                }
+            }
+            rafId = requestAnimationFrame(scan);
+        };
+
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+            .then(s => { stream = s; video.srcObject = s; video.play(); rafId = requestAnimationFrame(scan); })
+            .catch(() => { cleanup(); this._scanWithFileInput(); });
+    }
+
+    _scanWithFileInput() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.capture = 'environment';
+        input.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            // ZXing נטען lazily רק כשצריך
+            if (!window.ZXing) {
+                const s = document.createElement('script');
+                s.src = 'https://cdn.jsdelivr.net/npm/@zxing/browser@latest/umd/index.min.js';
+                document.head.appendChild(s);
+                await new Promise(r => s.onload = r);
+            }
+            try {
+                const reader = new ZXing.BrowserMultiFormatReader();
+                const result = await reader.decodeFromImageUrl(URL.createObjectURL(file));
+                await this._lookupByBarcode(result.getText());
+            } catch {
+                alert('לא הצלחנו לזהות ברקוד. נסו שוב או הקלידו ידנית.');
+            }
+        });
+        input.click();
+    }
+
+    async _lookupByBarcode(barcode) {
+        document.getElementById('price-search-input').value = barcode;
+        const panel = document.getElementById('price-panel');
+        panel.innerHTML = `<div class="price-loading">מחפש ברקוד ${barcode}...</div>`;
+
+        // TODO שלב 9: החלף ב-
+        // const { data } = await this.supabase.from('market_products').select('*').eq('barcode', barcode).single()
+        await new Promise(r => setTimeout(r, 400));
+        const product = MOCK_PRODUCTS.find(p => p.barcode === barcode);
+
+        if (!product) {
+            panel.innerHTML = `<div class="empty-state"><p>ברקוד ${barcode} לא נמצא במאגר</p><small>המאגר מתעדכן כל לילה</small></div>`;
+            return;
+        }
+        this._onProductSelected(product);
+    }
+
+    // ── Mock Data (יוסר בשלב 9) ──────────────────────────────
+    _mockSearch(query) {
+        const q = query.toLowerCase();
+        return MOCK_PRODUCTS
+            .filter(p =>
+                p.product_name.includes(query) ||
+                (p.brand && p.brand.includes(query)) ||
+                p.product_name.toLowerCase().includes(q)
+            )
+            .slice(0, 10);
+    }
+
+    _mockPrices(productId) {
+        const seed = productId.charCodeAt(0);
+        const chains = ['שופרסל', 'רמי לוי', 'ויקטורי', 'יינות ביתן', 'טיב טעם', 'חצי חינם', 'יוחננוף'];
+        return chains
+            .map((chain_name, i) => ({
+                chain_name,
+                price: (5 + ((seed + i * 7) % 30) / 10).toFixed(2),
+                is_promotional: i === 2,
+                scraped_at: new Date(Date.now() - i * 3600000).toISOString()
+            }))
+            .sort((a, b) => a.price - b.price);
+    }
+}
+
+// Mock products — יוחלפו בנתוני Supabase בשלב 9
+const MOCK_PRODUCTS = [
+    { id: 'p1', barcode: '7290000066318', product_name: 'חלב תנובה 3% שומן 1 ליטר',    brand: 'תנובה' },
+    { id: 'p2', barcode: '7290000066325', product_name: 'חלב עמיד תנובה 3% 1 ליטר',    brand: 'תנובה' },
+    { id: 'p3', barcode: '7290002183779', product_name: 'לחם אחיד פרוס אנג\'ל 750 גרם', brand: 'אנג\'ל' },
+    { id: 'p4', barcode: '7290002183786', product_name: 'לחם שיפון אנג\'ל',              brand: 'אנג\'ל' },
+    { id: 'p5', barcode: '7290005760054', product_name: 'גבינה צהובה עמק 28% 200 גרם',  brand: 'תנובה' },
+    { id: 'p6', barcode: '7290005760061', product_name: 'גבינה לבנה 5% 250 גרם',        brand: 'תנובה' },
+    { id: 'p7', barcode: '7290000850015', product_name: 'ביצים L תריסר מוקרן',          brand: 'מוקרן' },
+    { id: 'p8', barcode: '7290010322244', product_name: 'קוטג\' 5% שטראוס 250 גרם',     brand: 'שטראוס' },
+    { id: 'p9', barcode: '7290010063165', product_name: 'יוגורט טבעי עלית 200 גרם',     brand: 'עלית' },
+    { id: 'p10', barcode: '7290000850022', product_name: 'שמן זית כתית מעולה 750 מ"ל', brand: 'Yad Mordechai' },
+    { id: 'p11', barcode: '7290000850039', product_name: 'אורז בסמטי 1 ק"ג',            brand: 'לה פרמה' },
+    { id: 'p12', barcode: '7290000076522', product_name: 'חומוס מוכן שטראוס 400 גרם',   brand: 'שטראוס' },
+    { id: 'p13', barcode: '7290000076539', product_name: 'קפה נמס נסקפה קלאסיק 200 גרם', brand: 'נסקפה' },
+    { id: 'p14', barcode: '7290104600027', product_name: 'במבה אוסם 80 גרם',            brand: 'אוסם' },
+    { id: 'p15', barcode: '7290104600034', product_name: 'ביסלי גריל אוסם 70 גרם',      brand: 'אוסם' },
+];
 
 // Initialize the app
 window.app = new ShoppingApp();
