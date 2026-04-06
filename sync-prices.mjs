@@ -218,20 +218,27 @@ function extractProducts(parsed) {
 // Supabase - batch upsert
 // =========================================================
 async function getOrCreateChain(name) {
-    let { data } = await supabase
+    let { data, error } = await supabase
         .from('supermarket_chains')
         .select('id')
         .eq('chain_name', name)
         .single();
 
     if (!data) {
+        // PGRST116 = "no rows found" — expected when chain doesn't exist yet
+        if (error && error.code !== 'PGRST116') {
+            throw new Error(`DB select chain failed: ${error.message}`);
+        }
         const res = await supabase
             .from('supermarket_chains')
             .insert({ chain_name: name })
             .select('id')
             .single();
+        if (res.error) throw new Error(`DB insert chain failed: ${res.error.message}`);
         data = res.data;
     }
+
+    if (!data?.id) throw new Error(`No id returned for chain "${name}"`);
     return data.id;
 }
 
