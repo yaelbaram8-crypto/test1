@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { gunzipSync } from 'zlib';
 import { XMLParser } from 'fast-xml-parser';
+import { PassThrough } from 'stream';
+import * as ftp from 'basic-ftp';
 
 /**
  * =======================================================
@@ -71,25 +73,25 @@ const CHAINS = [
         pass: process.env.STOP_MARKET_PASS
     },
 
-    // --- Cerberus Retail (url.retail.publishedprices.co.il) — ללא סיסמה ---
+    // --- Cerberus FTP (url.retail.publishedprices.co.il) — FTP ללא סיסמה ---
     {
         name: 'טיב טעם',
-        platform: 'cerberus',
-        cerberusHost: 'url.retail.publishedprices.co.il',
+        platform: 'cerberus_ftp',
+        ftpHost: 'url.retail.publishedprices.co.il',
         user: 'TivTaam',
         pass: ''
     },
     {
         name: 'אושר עד',
-        platform: 'cerberus',
-        cerberusHost: 'url.retail.publishedprices.co.il',
+        platform: 'cerberus_ftp',
+        ftpHost: 'url.retail.publishedprices.co.il',
         user: 'osherad',
         pass: ''
     },
     {
         name: 'יוחננוף',
-        platform: 'cerberus',
-        cerberusHost: 'url.retail.publishedprices.co.il',
+        platform: 'cerberus_ftp',
+        ftpHost: 'url.retail.publishedprices.co.il',
         user: 'yohananof',
         pass: process.env.YOCHANANOF_PASS || ''
     },
@@ -190,6 +192,41 @@ async function fetchGenericHtml(chain) {
     const fileUrl = href.startsWith('http') ? href : new URL(href, chain.listUrl).toString();
     console.log(`  ⬇️  ${fileUrl}`);
     return fetchAndParseXml(fileUrl);
+}
+
+/** Cerberus FTP - מוריד PriceFull אחרון דרך FTP (ללא TLS) */
+async function fetchCerberusFtp(chain) {
+    const client = new ftp.Client();
+    client.ftp.verbose = false;
+    try {
+        await client.access({
+            host: chain.ftpHost,
+            user: chain.user,
+            password: chain.pass ?? '',
+            secure: false
+        });
+
+        const list = await client.list('/');
+        const priceFiles = list
+            .filter(f => f.name.startsWith('PriceFull'))
+            .sort((a, b) => b.size - a.size); // הגדול ביותר = קטלוג המלא
+
+        if (!priceFiles.length) throw new Error(`לא נמצאו קבצי PriceFull עבור ${chain.name}`);
+
+        const fileName = priceFiles[0].name;
+        console.log(`  ⬇️  ftp://${chain.ftpHost}/${fileName}`);
+
+        const pass = new PassThrough();
+        const chunks = [];
+        pass.on('data', chunk => chunks.push(chunk));
+        await client.downloadTo(pass, fileName);
+
+        const buf = Buffer.concat(chunks);
+        const xmlBuf = fileName.includes('.gz') ? gunzipSync(buf) : buf;
+        return xmlParser.parse(xmlBuf.toString('utf8'));
+    } finally {
+        client.close();
+    }
 }
 
 // =========================================================
@@ -313,9 +350,10 @@ async function upsertProducts(products, chainId) {
 async function syncChain(chain) {
     let parsed;
     switch (chain.platform) {
-        case 'shufersal':   parsed = await fetchShufersal(chain); break;
-        case 'cerberus':    parsed = await fetchCerberus(chain);  break;
-        case 'generic_html': parsed = await fetchGenericHtml(chain); break;
+        case 'shufersal':    parsed = await fetchShufersal(chain);    break;
+        case 'cerberus':     parsed = await fetchCerberus(chain);     break;
+        case 'cerberus_ftp': parsed = await fetchCerberusFtp(chain);  break;
+        case 'generic_html': parsed = await fetchGenericHtml(chain);  break;
         default: throw new Error(`פלטפורמה לא מוכרת: ${chain.platform}`);
     }
 
