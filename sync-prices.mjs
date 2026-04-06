@@ -71,21 +71,27 @@ const CHAINS = [
         pass: process.env.STOP_MARKET_PASS
     },
 
-    // --- פלטפורמות עצמאיות (ללא login, HTML listing) ---
+    // --- Cerberus Retail (url.retail.publishedprices.co.il) — ללא סיסמה ---
     {
         name: 'טיב טעם',
-        platform: 'generic_html',
-        listUrl: 'http://www.tivtaam.co.il/openformat/'
+        platform: 'cerberus',
+        cerberusHost: 'url.retail.publishedprices.co.il',
+        user: 'TivTaam',
+        pass: ''
     },
     {
         name: 'אושר עד',
-        platform: 'generic_html',
-        listUrl: 'http://osherad.co.il/xml/'
+        platform: 'cerberus',
+        cerberusHost: 'url.retail.publishedprices.co.il',
+        user: 'osherad',
+        pass: ''
     },
     {
         name: 'יוחננוף',
-        platform: 'generic_html',
-        listUrl: 'http://yochananof.co.il/xml/'
+        platform: 'cerberus',
+        cerberusHost: 'url.retail.publishedprices.co.il',
+        user: 'yohananof',
+        pass: process.env.YOCHANANOF_PASS || ''
     },
     // חצי חינם / נתיב החסד / מחסני השוק — דומיינים לא פעילים, הוסר
 ];
@@ -123,12 +129,18 @@ async function fetchShufersal(chain) {
 
 /** Cerberus - login + רשימת קבצי JSON + הורדת PriceFull אחרון */
 async function fetchCerberus(chain) {
-    if (!chain.user || !chain.pass) {
-        throw new Error(`חסרים env vars: ${chain.name.toUpperCase().replace(/ /g, '_')}_USER / _PASS`);
+    if (!chain.user) {
+        throw new Error(`חסר env var: ${chain.name.toUpperCase().replace(/ /g, '_')}_USER`);
+    }
+    // pass יכולה להיות ריקה (רשתות ללא סיסמה); רק user שאינו מוגדר בכלל = שגיאה
+    if (chain.pass === undefined) {
+        throw new Error(`חסר env var: ${chain.name.toUpperCase().replace(/ /g, '_')}_PASS`);
     }
 
+    const host = chain.cerberusHost ?? 'url.publishedprices.co.il';
+
     // Login
-    const loginRes = await fetch('https://url.publishedprices.co.il/login/user', {
+    const loginRes = await fetch(`https://${host}/login/user`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `username=${encodeURIComponent(chain.user)}&password=${encodeURIComponent(chain.pass)}`,
@@ -136,10 +148,10 @@ async function fetchCerberus(chain) {
         signal: AbortSignal.timeout(30000)
     });
     const cookie = loginRes.headers.get('set-cookie')?.split(';')[0];
-    if (!cookie) throw new Error(`Login נכשל עבור ${chain.name}`);
+    if (!cookie) throw new Error(`Login נכשל עבור ${chain.name} (HTTP ${loginRes.status})`);
 
     // רשימת קבצים
-    const dirRes = await fetch('https://url.publishedprices.co.il/file/json/dir', {
+    const dirRes = await fetch(`https://${host}/file/json/dir`, {
         headers: { Cookie: cookie },
         signal: AbortSignal.timeout(30000)
     });
@@ -150,7 +162,7 @@ async function fetchCerberus(chain) {
 
     if (!priceFiles.length) throw new Error(`לא נמצאו קבצי PriceFull עבור ${chain.name}`);
 
-    const fileUrl = `https://url.publishedprices.co.il/file/d/${priceFiles[0].name}`;
+    const fileUrl = `https://${host}/file/d/${priceFiles[0].name}`;
     console.log(`  ⬇️  ${fileUrl}`);
     return fetchAndParseXml(fileUrl, { Cookie: cookie });
 }
