@@ -78,30 +78,16 @@ const CHAINS = [
         listUrl: 'http://www.tivtaam.co.il/openformat/'
     },
     {
-        name: 'חצי חינם',
-        platform: 'generic_html',
-        listUrl: 'http://halfprice.co.il/xml/'
-    },
-    {
         name: 'אושר עד',
         platform: 'generic_html',
         listUrl: 'http://osherad.co.il/xml/'
-    },
-    {
-        name: 'נתיב החסד',
-        platform: 'generic_html',
-        listUrl: 'http://netivhachesed.co.il/xml/'
     },
     {
         name: 'יוחננוף',
         platform: 'generic_html',
         listUrl: 'http://yochananof.co.il/xml/'
     },
-    {
-        name: 'מחסני השוק',
-        platform: 'generic_html',
-        listUrl: 'http://mahsaneyhashouk.co.il/xml/'
-    },
+    // חצי חינם / נתיב החסד / מחסני השוק — דומיינים לא פעילים, הוסר
 ];
 
 // =========================================================
@@ -110,13 +96,27 @@ const CHAINS = [
 
 /** שופרסל - HTML עם links לקבצי GZ */
 async function fetchShufersal(chain) {
-    const res = await fetch(chain.listUrl, { signal: AbortSignal.timeout(30000) });
-    const html = await res.text();
-    const matches = [...html.matchAll(/href="([^"]*PriceFull[^"]*\.gz)"/gi)];
-    if (!matches.length) throw new Error('לא נמצאו קבצי PriceFull ב-Shufersal');
+    const res = await fetch(chain.listUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PriceBot/1.0)' },
+        signal: AbortSignal.timeout(30000)
+    });
+    let html = await res.text();
+    console.log(`  📄 HTTP ${res.status}, ${html.length} chars`);
+
+    // decode HTML entities (&amp; → &) לפני חיפוש
+    html = html.replace(/&amp;/g, '&');
+
+    // רגקס גמיש — מאפשר פרמטרים אחרי .gz (למשל &relaPath=None)
+    let matches = [...html.matchAll(/href="([^"]*PriceFull[^"]*\.gz[^"]*)"/gi)];
+
+    if (!matches.length) {
+        // diagnostic — הדפס 2000 תווים ראשונים לדיבאג
+        console.log(`  🔍 HTML snippet:\n${html.substring(0, 2000)}`);
+        throw new Error('לא נמצאו קבצי PriceFull ב-Shufersal');
+    }
+
     const href = matches[0][1];
-    // ה-hrefs עשויים להיות מוחלטים (Azure Blob) או יחסיים
-    const fileUrl = href.startsWith('http') ? href : chain.fileBaseUrl + href;
+    const fileUrl = href.startsWith('http') ? href : new URL(href, chain.listUrl).toString();
     console.log(`  ⬇️  ${fileUrl}`);
     return fetchAndParseXml(fileUrl);
 }
@@ -157,14 +157,23 @@ async function fetchCerberus(chain) {
 
 /** Generic HTML - מחפש קישורי GZ בדף רשימת קבצים */
 async function fetchGenericHtml(chain) {
-    const res = await fetch(chain.listUrl, { signal: AbortSignal.timeout(30000) });
-    const html = await res.text();
+    const res = await fetch(chain.listUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PriceBot/1.0)' },
+        signal: AbortSignal.timeout(30000)
+    });
+    let html = await res.text();
+    console.log(`  📄 HTTP ${res.status}, ${html.length} chars`);
 
-    // מחפש href שמצביע על קובץ PriceFull GZ
-    const matches = [...html.matchAll(/href="([^"]*PriceFull[^"]*\.gz)"/gi)];
-    if (!matches.length) throw new Error(`לא נמצאו קבצי PriceFull ב-${chain.name} (${chain.listUrl})`);
+    html = html.replace(/&amp;/g, '&');
 
-    // הופך URL יחסי למוחלט
+    // רגקס גמיש — מאפשר פרמטרים אחרי .gz
+    const matches = [...html.matchAll(/href="([^"]*PriceFull[^"]*\.gz[^"]*)"/gi)];
+
+    if (!matches.length) {
+        console.log(`  🔍 HTML snippet:\n${html.substring(0, 1500)}`);
+        throw new Error(`לא נמצאו קבצי PriceFull ב-${chain.name} (${chain.listUrl})`);
+    }
+
     const href = matches[0][1];
     const fileUrl = href.startsWith('http') ? href : new URL(href, chain.listUrl).toString();
     console.log(`  ⬇️  ${fileUrl}`);
@@ -178,7 +187,7 @@ async function fetchAndParseXml(url, headers = {}) {
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(120000) });
     if (!res.ok) throw new Error(`HTTP ${res.status} בהורדת ${url}`);
     const buf = Buffer.from(await res.arrayBuffer());
-    const xmlBuf = url.endsWith('.gz') || url.includes('.gz?') ? gunzipSync(buf) : buf;
+    const xmlBuf = url.includes('.gz') ? gunzipSync(buf) : buf;
     return xmlParser.parse(xmlBuf.toString('utf8'));
 }
 
