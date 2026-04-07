@@ -27,24 +27,22 @@
                     <h1>חבי</h1>
                 </div>
                 <div class="header-actions">
-                    <button id="view-toggle-btn" class="btn btn-secondary" title="שנה תצוגה">
-                        <span class="icon">📌</span>
+                    <button id="optimize-cart-btn" class="btn btn-primary header-cta" title="השוואת מחירים">
+                        <span class="icon">💰</span> השווה סל
                     </button>
-                    <button id="clear-list-btn" class="btn btn-danger" title="נקה רשימה">
-                        <span class="icon">🗑️</span>
-                    </button>
-                    <button id="scan-receipt-btn" class="btn btn-secondary" title="סרוק קבלה">
-                        <span class="icon">📸</span>
-                    </button>
-                    <button id="share-family-btn" class="btn btn-secondary" title="שתף רשימה עם המשפחה">
-                        <span class="icon">👨‍👩‍👧</span>
-                    </button>
-                    <button id="auth-btn" class="btn btn-secondary" title="חשבון">
-                        <span class="icon">👤</span>
-                    </button>
-                    <button id="optimize-cart-btn" class="btn btn-primary" title="השוואת מחירים (חסוך בסל)">
-                        <span class="icon">💰</span>
-                    </button>
+                    <div class="header-menu-wrap">
+                        <button id="header-menu-btn" class="btn btn-secondary" title="עוד אפשרויות" aria-label="תפריט">
+                            <span class="icon">⋮</span>
+                        </button>
+                        <div id="header-menu" class="header-menu">
+                            <button id="scan-receipt-btn" class="header-menu-item">📸 סרוק קבלה</button>
+                            <button id="share-family-btn" class="header-menu-item">👨‍👩‍👧 שתף עם המשפחה</button>
+                            <button id="view-toggle-btn" class="header-menu-item">📌 שנה תצוגה</button>
+                            <button id="auth-btn" class="header-menu-item">👤 חשבון</button>
+                            <hr class="header-menu-divider">
+                            <button id="clear-list-btn" class="header-menu-item header-menu-danger">🗑️ נקה רשימה</button>
+                        </div>
+                    </div>
                     <input type="file" id="receipt-upload" accept="image/*" capture="environment" style="display: none;">
                 </div>
             </div>

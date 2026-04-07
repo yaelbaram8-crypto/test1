@@ -374,7 +374,7 @@ CREATE INDEX IF NOT EXISTS idx_market_products_brand_trgm
 
 -- 15. RPC: חיפוש מוצרים לפי טקסט חופשי — מדורג לפי דמיון + מחיר זול בשאילתה אחת
 --     קריאה: supabase.rpc('search_products', { query_text: 'חלב', result_limit: 20 })
---     שיפור: מחזיר cheapest_price + cheapest_chain ללא N+1 queries
+--     שיפור v2: סף דינמי לעברית, word_similarity, prefix bonus, חיפוש גם במותג
 DROP FUNCTION IF EXISTS search_products(TEXT, INT);
 CREATE OR REPLACE FUNCTION search_products(
     query_text   TEXT,
@@ -390,18 +390,30 @@ RETURNS TABLE (
     cheapest_price NUMERIC,
     cheapest_chain TEXT
 )
-LANGUAGE SQL STABLE AS $$
+LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    -- סף דינמי: מילים קצרות בעברית (חלב, לחם) צריכות סף נמוך מאוד
+    PERFORM set_limit(
+        CASE WHEN length(query_text) <= 3 THEN 0.05
+             WHEN length(query_text) <= 5 THEN 0.1
+             ELSE 0.15 END
+    );
+    RETURN QUERY
     SELECT
         mp.id,
         mp.barcode,
         mp.product_name,
         mp.brand,
         mp.category_id,
-        -- ניקוד משולב: שם מוצר 70%, מותג 30%
-        (
-            similarity(mp.product_name, query_text) * 0.7
-            + COALESCE(similarity(mp.brand, query_text), 0) * 0.3
-        )::REAL AS similarity,
+        -- ניקוד משולב: word_similarity (טוב יותר ל-substring), prefix bonus, brand match
+        GREATEST(
+            word_similarity(query_text, mp.product_name),
+            COALESCE(word_similarity(query_text, mp.brand), 0) * 0.8,
+            CASE WHEN mp.product_name ILIKE query_text || '%' THEN 0.95  -- "חלב..." prefix
+                 WHEN mp.product_name ILIKE '% ' || query_text || '%' THEN 0.7  -- "... חלב..."
+                 WHEN mp.product_name ILIKE '%' || query_text || '%' THEN 0.5
+                 ELSE 0 END
+        )::REAL AS sim,
         MIN(mpr.price)                                             AS cheapest_price,
         (array_agg(sc.chain_name ORDER BY mpr.price ASC NULLS LAST))[1] AS cheapest_chain
     FROM market_products mp
@@ -411,9 +423,19 @@ LANGUAGE SQL STABLE AS $$
         mp.product_name % query_text
         OR mp.brand % query_text
         OR mp.product_name ILIKE '%' || query_text || '%'
+        OR mp.brand ILIKE '%' || query_text || '%'
     GROUP BY mp.id, mp.barcode, mp.product_name, mp.brand, mp.category_id
-    ORDER BY similarity DESC
+    HAVING GREATEST(
+        word_similarity(query_text, mp.product_name),
+        COALESCE(word_similarity(query_text, mp.brand), 0) * 0.8,
+        CASE WHEN mp.product_name ILIKE query_text || '%' THEN 0.95
+             WHEN mp.product_name ILIKE '% ' || query_text || '%' THEN 0.7
+             WHEN mp.product_name ILIKE '%' || query_text || '%' THEN 0.5
+             ELSE 0 END
+    ) > 0.05
+    ORDER BY sim DESC
     LIMIT result_limit;
+END;
 $$;
 
 -- 16b. RPC: היסטוריית מחיר יומית למוצר — לגרף טרנד

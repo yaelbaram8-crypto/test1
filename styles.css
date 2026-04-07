@@ -201,6 +201,42 @@ input[type="text"]::placeholder {
     gap: 8px;
     align-items: center;
 }
+.header-cta {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.85rem; font-weight: 600;
+    padding: 8px 16px; border-radius: 12px;
+    white-space: nowrap;
+}
+
+/* Header overflow menu */
+.header-menu-wrap { position: relative; }
+.header-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    background: white;
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+    min-width: 200px;
+    padding: 6px 0;
+    z-index: 300;
+    direction: rtl;
+}
+.header-menu.open { display: block; }
+.header-menu-item {
+    display: block; width: 100%;
+    background: none; border: none;
+    padding: 12px 18px;
+    font-size: 0.9rem; font-weight: 500;
+    text-align: right; cursor: pointer;
+    color: var(--text-color);
+    transition: background 0.15s;
+}
+.header-menu-item:hover { background: rgba(99,102,241,0.06); }
+.header-menu-danger { color: #ef4444; }
+.header-menu-danger:hover { background: #fef2f2; }
+.header-menu-divider { border: none; border-top: 1px solid rgba(0,0,0,0.06); margin: 4px 0; }
 
 /* Auth */
 .auth-avatar {

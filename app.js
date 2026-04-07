@@ -304,6 +304,18 @@ class ShoppingApp {
             });
         }
 
+        // Header overflow menu toggle
+        const menuBtn = document.getElementById('header-menu-btn');
+        const menu = document.getElementById('header-menu');
+        if (menuBtn && menu) {
+            menuBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                menu.classList.toggle('open');
+            });
+            document.addEventListener('click', () => menu.classList.remove('open'));
+            menu.addEventListener('click', () => menu.classList.remove('open'));
+        }
+
         // Auth
         document.getElementById('auth-btn')?.addEventListener('click', () => this._showAuthModal());
         document.getElementById('google-signin-btn')?.addEventListener('click', () => this._signInWithGoogle());
