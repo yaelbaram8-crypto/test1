@@ -265,8 +265,15 @@ async function fetchCerberusFtp(chain, fileType='PriceFull') {
 
         const buf = Buffer.concat(chunks);
         const xmlBuf = fileName.includes('.gz') ? gunzipSync(buf) : buf;
-        const parsed = xmlParser.parse(xmlBuf.toString('utf8'));
         const branch_code = fileName.split('-')[2] ?? '';
+
+        // PromoFull גדול מ-80MB — מדלג למניעת OOM
+        if (fileType !== 'PriceFull' && xmlBuf.length > 80 * 1024 * 1024) {
+            console.warn(`  ⚠️  ${fileType} גדול מדי (${(xmlBuf.length/1024/1024).toFixed(0)}MB), מדלג`);
+            return { parsed: {}, branch_code };
+        }
+
+        const parsed = xmlParser.parse(xmlBuf.toString('utf8'));
         return { parsed, branch_code };
     } finally {
         client.close();
