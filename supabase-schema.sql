@@ -451,3 +451,13 @@ LANGUAGE SQL STABLE AS $$
     WHERE mpr.product_id = p_product_id
     ORDER BY mpr.price ASC;
 $$;
+
+-- ===================================================
+-- PHASE 5: Store-level prices: add branch_code to market_prices
+-- Run after Phase 4
+-- ===================================================
+ALTER TABLE market_prices ADD COLUMN IF NOT EXISTS branch_code TEXT NOT NULL DEFAULT '';
+DROP INDEX IF EXISTS market_prices_product_id_chain_id_key;
+-- Note: also drop the unique constraint and recreate it:
+-- ALTER TABLE market_prices DROP CONSTRAINT IF EXISTS market_prices_product_id_chain_id_key;
+-- ALTER TABLE market_prices ADD CONSTRAINT market_prices_product_id_chain_id_branch_key UNIQUE (product_id, chain_id, branch_code);

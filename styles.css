@@ -408,6 +408,115 @@ input[type="text"]::placeholder {
     color: #f59e0b;
 }
 
+.stats-summary-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+.stats-kpi {
+    flex: 1;
+    background: white;
+    border-radius: 12px;
+    padding: 12px;
+    text-align: center;
+    box-shadow: var(--shadow-sm);
+}
+.stats-kpi-value {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--primary-color);
+}
+.stats-kpi-value.stats-kpi-sm {
+    font-size: 1rem;
+}
+.stats-kpi-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+.stats-section {
+    margin-bottom: 20px;
+}
+.stats-section-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 10px;
+}
+.stats-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.stats-bar-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+.stats-bar-label {
+    min-width: 120px;
+    font-size: 0.8rem;
+    text-align: right;
+}
+.stats-bar-track {
+    flex: 1;
+    height: 10px;
+    background: #f1f5f9;
+    border-radius: 5px;
+    overflow: hidden;
+}
+.stats-bar-fill {
+    height: 100%;
+    background: var(--primary-color);
+    border-radius: 5px;
+    transition: width 0.4s;
+}
+.stats-bar-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    min-width: 24px;
+    text-align: left;
+}
+.stats-day-chart {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    height: 80px;
+    gap: 4px;
+    padding: 0 4px;
+}
+.stats-day-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+.stats-day-bar-wrap {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    align-items: flex-end;
+}
+.stats-day-bar {
+    width: 100%;
+    background: #e2e8f0;
+    border-radius: 4px 4px 0 0;
+    min-height: 4px;
+}
+.stats-day-bar.stats-day-bar-max {
+    background: var(--primary-color);
+}
+.stats-day-label {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+}
+.stats-day-label.stats-day-label-max {
+    color: var(--primary-color);
+    font-weight: 700;
+}
+
 /* History Timeline */
 .history-timeline {
     padding: 16px;

@@ -254,48 +254,113 @@ class ShoppingApp {
         this.setLoading(true, "סורק קבלה... רק רגע");
 
         try {
-            // Tesseract.js OCR
             const worker = await Tesseract.createWorker('heb');
             const { data: { text } } = await worker.recognize(file);
             await worker.terminate();
 
-            // Refined Parser: Identify items vs prices
-            const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+            const junkKeywords = ['סהכ', 'סה"כ', 'מעמ', 'מע"מ', 'תשלום', 'שינוי', 'עודף', 'קופה', 'קבלה', 'חשבונית', 'ניקוד', 'נקודות', 'מיסים', 'תודה', 'מזומן', 'אשראי', 'ביטול', 'זיכוי'];
+            const hebrewChar = /[\u05D0-\u05EA]/;
+
             const foundItems = [];
+            const lines = text.split('\n').map(l => l.trim());
+            for (const line of lines) {
+                if (line.length < 3) continue;
+                if (!hebrewChar.test(line)) continue;
+                if (/\d{2}[\/\.]\d{2}/.test(line)) continue;
+                if (/\d{2}:\d{2}/.test(line)) continue;
+                if (/\d{6,}/.test(line)) continue;
+                if (junkKeywords.some(kw => line.includes(kw))) continue;
 
-            lines.forEach(line => {
-                // Ignore lines that are just dates or total numbers
-                if (line.match(/\d{2}[\/.]\d{2}[\/.]\d{2}/)) return;
+                let name = line
+                    .replace(/\d+\.\d{2}/g, '')
+                    .replace(/×\d+/g, '')
+                    .replace(/₪/g, '')
+                    .trim();
 
-                // Try to separate name from price (e.g. "חלב 5.90")
-                const priceMatch = line.match(/(\d+\.\d{2})/);
-                let itemName = line;
-                if (priceMatch) {
-                    itemName = line.replace(priceMatch[0], '').trim();
+                if (name.length >= 3 && hebrewChar.test(name)) {
+                    foundItems.push(name);
                 }
+            }
 
-                // Filter out common receipt junk
-                if (itemName.length > 2 && !itemName.match(/^[0-9*]+$/)) {
-                    foundItems.push(itemName);
-                }
+            if (foundItems.length === 0) {
+                alert("לא הצלחנו לזהות פריטים ברורים. נסו לצלם שוב בתאורה טובה יותר.");
+                return;
+            }
+
+            // Show confirmation modal
+            const overlay = document.createElement('div');
+            overlay.className = 'ocr-modal-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+            const modal = document.createElement('div');
+            modal.style.cssText = 'background:white;border-radius:16px;padding:20px;width:100%;max-width:420px;max-height:80vh;display:flex;flex-direction:column;gap:12px;direction:rtl;';
+
+            const title = document.createElement('h3');
+            title.style.cssText = 'margin:0;font-size:1.1rem;color:var(--text-main);';
+            title.textContent = 'פריטים שזוהו בקבלה';
+
+            const subtitle = document.createElement('p');
+            subtitle.style.cssText = 'margin:0;font-size:0.85rem;color:var(--text-muted);';
+            subtitle.textContent = 'סמנו מה להוסיף לרשימה';
+
+            const list = document.createElement('div');
+            list.style.cssText = 'overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:8px;';
+
+            foundItems.forEach((name, i) => {
+                const label = document.createElement('label');
+                label.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8fafc;border-radius:8px;cursor:pointer;font-size:0.95rem;';
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = true;
+                cb.dataset.idx = i;
+                cb.style.cssText = 'width:18px;height:18px;cursor:pointer;';
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode(name));
+                list.appendChild(label);
             });
 
-            if (foundItems.length > 0) {
-                for (const item of foundItems) {
-                    await this.addItem(item, false);
+            const btnRow = document.createElement('div');
+            btnRow.style.cssText = 'display:flex;gap:8px;';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.style.cssText = 'flex:1;padding:12px;background:var(--primary-color);color:white;border:none;border-radius:10px;font-size:1rem;font-family:inherit;cursor:pointer;font-weight:700;';
+            confirmBtn.textContent = 'הוסף לרשימה';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.style.cssText = 'flex:1;padding:12px;background:#f1f5f9;color:var(--text-main);border:none;border-radius:10px;font-size:1rem;font-family:inherit;cursor:pointer;';
+            cancelBtn.textContent = 'ביטול';
+
+            const cleanup = () => { overlay.remove(); this.fileInput.value = ''; };
+
+            cancelBtn.addEventListener('click', cleanup);
+
+            confirmBtn.addEventListener('click', async () => {
+                const checked = [...list.querySelectorAll('input[type=checkbox]:checked')];
+                const toAdd = checked.map(cb => foundItems[parseInt(cb.dataset.idx)]);
+                cleanup();
+                this.setLoading(true, 'מוסיף פריטים...');
+                for (const name of toAdd) {
+                    await this.addItem(name, false);
                 }
-                alert(`זוהו ${foundItems.length} פריטים מהקבלה!`);
                 if (this.supabase) await this.fetchItems();
                 this.render();
-            } else {
-                alert("לא הצלחנו לזהות פריטים ברורים. נסו לצלם שוב בסיבת תאורה טובה יותר.");
-            }
+                this.setLoading(false);
+            });
+
+            btnRow.appendChild(confirmBtn);
+            btnRow.appendChild(cancelBtn);
+            modal.appendChild(title);
+            modal.appendChild(subtitle);
+            modal.appendChild(list);
+            modal.appendChild(btnRow);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+
         } catch (error) {
             console.error("OCR Error:", error);
             alert("שגיאה בסריקת הקבלה. וודאו שיש חיבור לאינטרנט לטעינת המנוע.");
         } finally {
             this.setLoading(false);
-            this.fileInput.value = '';
         }
     }
 
@@ -787,28 +852,140 @@ class ShoppingApp {
         `;
     }
 
+    async fetchAllHistory() {
+        if (!this.supabase) return [];
+        const { data, error } = await this.supabase
+            .from('purchase_history')
+            .select('*')
+            .eq('family_code', this.familyCode)
+            .order('purchased_at', { ascending: false })
+            .limit(500);
+        if (error) { console.error('Error fetching all history:', error); return []; }
+        return data || [];
+    }
+
     async renderStats() {
-        const popular = await this.fetchPopularItems();
-        if (popular.length === 0) {
+        const [popular, history, chainsRes] = await Promise.all([
+            this.fetchPopularItems(),
+            this.fetchAllHistory(),
+            this.supabase ? this.supabase.from('supermarket_chains').select('id,chain_name') : Promise.resolve({ data: [] })
+        ]);
+
+        if (popular.length === 0 && history.length === 0) {
             this.statsContainer.innerHTML = `<div class="empty-state"><p>אין מספיק נתונים לסטטיסטיקה. התחילו לקנות!</p></div>`;
             return;
         }
 
+        const chains = chainsRes.data || [];
+
+        // KPIs
+        const totalPurchases = history.length;
+        const uniqueItems = new Set(history.map(h => h.item_name?.toLowerCase())).size;
+
+        const chainCounts = {};
+        history.forEach(h => {
+            if (h.chain_id) chainCounts[h.chain_id] = (chainCounts[h.chain_id] || 0) + 1;
+        });
+        let favoriteChainName = '—';
+        if (Object.keys(chainCounts).length) {
+            const topChainId = Object.entries(chainCounts).sort((a, b) => b[1] - a[1])[0][0];
+            const found = chains.find(c => c.id === topChainId);
+            if (found) favoriteChainName = found.chain_name;
+        }
+
+        const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+        const dayCounts = [0, 0, 0, 0, 0, 0, 0];
+        history.forEach(h => {
+            if (h.purchased_at) {
+                const d = new Date(h.purchased_at).getDay();
+                dayCounts[d]++;
+            }
+        });
+        const maxDayIdx = dayCounts.indexOf(Math.max(...dayCounts));
+        const mostActiveDay = dayCounts[maxDayIdx] > 0 ? dayNames[maxDayIdx] : '—';
+
+        // Category bars (top 6)
+        const catCounts = {};
+        history.forEach(h => {
+            const cid = h.category_id || 'other';
+            catCounts[cid] = (catCounts[cid] || 0) + 1;
+        });
+        const topCats = Object.entries(catCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 6);
+        const maxCatCount = topCats[0]?.[1] || 1;
+
+        const catBarsHtml = topCats.map(([cid, cnt]) => {
+            const cat = this.categories[cid];
+            const label = cat ? `${cat.emoji} ${cat.name}` : cid;
+            const pct = Math.round((cnt / maxCatCount) * 100);
+            return `
+                <div class="stats-bar-row">
+                    <div class="stats-bar-label">${label}</div>
+                    <div class="stats-bar-track"><div class="stats-bar-fill" style="width:${pct}%"></div></div>
+                    <div class="stats-bar-count">${cnt}</div>
+                </div>`;
+        }).join('');
+
+        // Day-of-week chart
+        const maxDayCount = Math.max(...dayCounts, 1);
+        const dayChartHtml = dayCounts.map((cnt, i) => {
+            const pct = Math.round((cnt / maxDayCount) * 100);
+            const isMax = i === maxDayIdx && cnt > 0;
+            return `
+                <div class="stats-day-col">
+                    <div class="stats-day-bar-wrap">
+                        <div class="stats-day-bar${isMax ? ' stats-day-bar-max' : ''}" style="height:${pct}%"></div>
+                    </div>
+                    <div class="stats-day-label${isMax ? ' stats-day-label-max' : ''}">${dayNames[i].slice(0, 3)}</div>
+                </div>`;
+        }).join('');
+
+        // Popular items list
+        const popularHtml = popular.map((item, idx) => `
+            <div class="stat-card">
+                <div class="stat-rank">#${idx + 1}</div>
+                <div class="stat-info">
+                    <strong>${item.item_name}</strong>
+                    <span class="stat-meta">נקנה ${item.purchase_count} פעמים | לפני ${item.days_since_last} ימים</span>
+                </div>
+                <div class="stat-score" title="Popularity Score">${item.popularity_score} ⭐</div>
+            </div>`).join('');
+
         this.statsContainer.innerHTML = `
             <div class="stats-dashboard">
-                <h2>📊 המוצרים הנקנים ביותר</h2>
-                <div class="stats-list">
-                    ${popular.map((item, idx) => `
-                        <div class="stat-card">
-                            <div class="stat-rank">#${idx + 1}</div>
-                            <div class="stat-info">
-                                <strong>${item.item_name}</strong>
-                                <span class="stat-meta">נקנה ${item.purchase_count} פעמים | לפני ${item.days_since_last} ימים</span>
-                            </div>
-                            <div class="stat-score" title="Popularity Score">${item.popularity_score} ⭐</div>
-                        </div>
-                    `).join('')}
+                <div class="stats-summary-row">
+                    <div class="stats-kpi">
+                        <div class="stats-kpi-value">${totalPurchases}</div>
+                        <div class="stats-kpi-label">סה"כ קניות</div>
+                    </div>
+                    <div class="stats-kpi">
+                        <div class="stats-kpi-value">${uniqueItems}</div>
+                        <div class="stats-kpi-label">פריטים שונים</div>
+                    </div>
+                    <div class="stats-kpi">
+                        <div class="stats-kpi-value stats-kpi-sm">${favoriteChainName}</div>
+                        <div class="stats-kpi-label">רשת מועדפת</div>
+                    </div>
+                    <div class="stats-kpi">
+                        <div class="stats-kpi-value stats-kpi-sm">${mostActiveDay}</div>
+                        <div class="stats-kpi-label">יום פעיל</div>
+                    </div>
                 </div>
+                ${topCats.length ? `
+                <div class="stats-section">
+                    <div class="stats-section-title">📦 קניות לפי קטגוריה</div>
+                    <div class="stats-bars">${catBarsHtml}</div>
+                </div>` : ''}
+                <div class="stats-section">
+                    <div class="stats-section-title">📅 קניות לפי יום בשבוע</div>
+                    <div class="stats-day-chart">${dayChartHtml}</div>
+                </div>
+                ${popular.length ? `
+                <div class="stats-section">
+                    <div class="stats-section-title">📊 המוצרים הנקנים ביותר</div>
+                    <div class="stats-list">${popularHtml}</div>
+                </div>` : ''}
             </div>
         `;
     }

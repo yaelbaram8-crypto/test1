@@ -265,7 +265,9 @@ async function fetchCerberusFtp(chain, fileType='PriceFull') {
 
         const buf = Buffer.concat(chunks);
         const xmlBuf = fileName.includes('.gz') ? gunzipSync(buf) : buf;
-        return xmlParser.parse(xmlBuf.toString('utf8'));
+        const parsed = xmlParser.parse(xmlBuf.toString('utf8'));
+        const branch_code = fileName.split('-')[2] ?? '';
+        return { parsed, branch_code };
     } finally {
         client.close();
     }
@@ -360,7 +362,7 @@ async function getOrCreateChain(name) {
     return data.id;
 }
 
-async function upsertProducts(products, chainId) {
+async function upsertProducts(products, chainId, branchCode = '') {
     const BATCH = 500;
     let updated = 0;
 
@@ -397,6 +399,7 @@ async function upsertProducts(products, chainId) {
         .map(p => ({
             product_id: productIdMap.get(p.barcode),
             chain_id: chainId,
+            branch_code: branchCode,
             price: p.price,
             is_promotional: p.is_promotional,
             scraped_at: new Date().toISOString()
@@ -405,7 +408,7 @@ async function upsertProducts(products, chainId) {
     for (let i = 0; i < priceRows.length; i += BATCH) {
         const { error } = await supabase
             .from('market_prices')
-            .upsert(priceRows.slice(i, i + BATCH), { onConflict: 'product_id,chain_id' });
+            .upsert(priceRows.slice(i, i + BATCH), { onConflict: 'product_id,chain_id,branch_code' });
         if (error) console.warn(`  ⚠️  upsert prices:`, error.message);
         else updated += Math.min(BATCH, priceRows.length - i);
     }
@@ -413,11 +416,11 @@ async function upsertProducts(products, chainId) {
     return updated;
 }
 
-async function upsertPromos(promoBarcodesSet, chainId) {
+async function upsertPromos(promoBarcodesSet, chainId, branchCode = '') {
     const BATCH = 500;
 
-    // 1. Reset all promo flags for this chain
-    await supabase.from('market_prices').update({ is_promotional: false }).eq('chain_id', chainId);
+    // 1. Reset all promo flags for this chain+branch
+    await supabase.from('market_prices').update({ is_promotional: false }).eq('chain_id', chainId).eq('branch_code', branchCode ?? '');
     if (!promoBarcodesSet.size) return;
 
     // 2. Find product IDs for promo barcodes
@@ -431,11 +434,12 @@ async function upsertPromos(promoBarcodesSet, chainId) {
     }
     if (!promoProductIds.length) return;
 
-    // 3. Mark promo=true for matched products in this chain
+    // 3. Mark promo=true for matched products in this chain+branch
     for (let i = 0; i < promoProductIds.length; i += BATCH) {
         await supabase.from('market_prices')
             .update({ is_promotional: true })
             .eq('chain_id', chainId)
+            .eq('branch_code', branchCode ?? '')
             .in('product_id', promoProductIds.slice(i, i + BATCH));
     }
     console.log(`  🏷️  ${promoProductIds.length} מוצרים מסומנים כמבצע`);
@@ -446,10 +450,11 @@ async function upsertPromos(promoBarcodesSet, chainId) {
 // =========================================================
 async function syncChain(chain) {
     let parsed;
+    let branchCode = '';
     switch (chain.platform) {
         case 'shufersal':    parsed = await fetchShufersal(chain);    break;
         case 'cerberus':     parsed = await fetchCerberus(chain);     break;
-        case 'cerberus_ftp': parsed = await fetchCerberusFtp(chain);  break;
+        case 'cerberus_ftp': { const res = await fetchCerberusFtp(chain); parsed = res.parsed; branchCode = res.branch_code; break; }
         case 'laibcatalog':  parsed = await fetchLaibcatalog(chain);  break;
         case 'generic_html': parsed = await fetchGenericHtml(chain);  break;
         default: throw new Error(`פלטפורמה לא מוכרת: ${chain.platform}`);
@@ -460,22 +465,23 @@ async function syncChain(chain) {
     console.log(`  ✅ פורסרו ${products.length.toLocaleString()} מוצרים`);
 
     const chainId = await getOrCreateChain(chain.name);
-    const count = await upsertProducts(products, chainId);
+    const count = await upsertProducts(products, chainId, branchCode);
     console.log(`  ✅ עודכנו ${count.toLocaleString()} מחירים ב-Supabase`);
 
     // Promo sync (אופציונלי — לא כשל אם PromoFull לא זמין)
     try {
         console.log(`  🏷️  סנכרון פרומו...`);
         let promoParsed;
+        let promoBranchCode = '';
         switch (chain.platform) {
             case 'shufersal':    promoParsed = await fetchShufersal(chain, 'PromoFull');    break;
             case 'cerberus':     promoParsed = await fetchCerberus(chain, 'PromoFull');     break;
-            case 'cerberus_ftp': promoParsed = await fetchCerberusFtp(chain, 'PromoFull');  break;
+            case 'cerberus_ftp': { const res = await fetchCerberusFtp(chain, 'PromoFull'); promoParsed = res.parsed; promoBranchCode = res.branch_code; break; }
             case 'laibcatalog':  promoParsed = await fetchLaibcatalog(chain, 'PromoFull');  break;
             case 'generic_html': promoParsed = await fetchGenericHtml(chain, 'PromoFull');  break;
         }
         const promoSet = extractPromos(promoParsed);
-        await upsertPromos(promoSet, chainId);
+        await upsertPromos(promoSet, chainId, promoBranchCode);
     } catch (err) {
         console.warn(`  ⚠️  פרומו נכשל (לא קריטי): ${err.message}`);
     }
