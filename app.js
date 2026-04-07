@@ -1224,7 +1224,6 @@ class PriceCompareModule {
 
     init(supabaseClient) {
         this.supabase = supabaseClient || null;
-        this.container = document.getElementById('prices-container');
         this.debounceTimer = null;
         this.selectedProduct = null;
         // בדוק התראות מחיר כל שעה כשהאפליקציה פתוחה
@@ -1237,9 +1236,9 @@ class PriceCompareModule {
 
     // ── תצוגת חיפוש ──────────────────────────────────────────
     _renderSearchView() {
-        if (!this.container) this.container = document.getElementById('prices-container');
-        if (!this.container) return;
-        this.container.innerHTML = `
+        const container = document.getElementById('prices-container');
+        if (!container) return;
+        container.innerHTML = `
             <div class="price-search-wrapper">
                 <div class="price-search-bar">
                     <input id="price-search-input" type="text" inputmode="search"
