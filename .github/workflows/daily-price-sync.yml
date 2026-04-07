@@ -1,45 +1,40 @@
 name: Daily Israeli Grocery Price Sync
 
 on:
-  push:
-    branches:
-      - main
   schedule:
-    # רץ כל לילה בשעה 2:00 בלילה שעון יוניברסלי (UTC) - בערך 4 בבוקר שעון ישראל
+    # 4:00 בבוקר שעון ישראל (2:00 UTC בחורף / 1:00 UTC בקיץ)
     - cron: '0 2 * * *'
-  workflow_dispatch: # מאפשר להריץ באופן ידני מהממשק של גיטהאב
+  workflow_dispatch: # הרצה ידנית מ-GitHub UI
 
 jobs:
   sync_prices:
     runs-on: ubuntu-latest
-    
+    defaults:
+      run:
+        working-directory: test1
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: test1/package-lock.json
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Run Price Sync Script
+      - name: Run Price Sync
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # --- Cerberus (url.publishedprices.co.il) ---
-          # הרשמה חינמית לכל רשת בנפרד בפורטל שלהם
-          RAMI_LEVY_USER: ${{ secrets.RAMI_LEVY_USER }}
-          RAMI_LEVY_PASS: ${{ secrets.RAMI_LEVY_PASS }}
-          VICTORY_USER: ${{ secrets.VICTORY_USER }}
-          VICTORY_PASS: ${{ secrets.VICTORY_PASS }}
-          KESHET_TAAMIM_USER: ${{ secrets.KESHET_TAAMIM_USER }}
-          KESHET_TAAMIM_PASS: ${{ secrets.KESHET_TAAMIM_PASS }}
-          YEINOT_BITAN_USER: ${{ secrets.YEINOT_BITAN_USER }}
-          YEINOT_BITAN_PASS: ${{ secrets.YEINOT_BITAN_PASS }}
-          STOP_MARKET_USER: ${{ secrets.STOP_MARKET_USER }}
-          STOP_MARKET_PASS: ${{ secrets.STOP_MARKET_PASS }}
-          # שאר הרשתות (טיב טעם, חצי חינם וכו') - ללא credentials, יעבדו אוטומטית
         run: node sync-prices.mjs
+
+      - name: Report summary
+        if: always()
+        run: |
+          echo "## Price Sync Results" >> $GITHUB_STEP_SUMMARY
+          echo "Ran at: $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY

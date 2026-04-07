@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#6366f1">
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3737/3737372.png">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛒</text></svg>">
-    <title>Family Shopping | רשימת קניות משפחתית</title>
+    <title>חבי | סוכן החיסכון בסופר</title>
     <!-- Premium Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,8 +23,8 @@
         <header class="main-header">
             <div class="header-content">
                 <div class="logo">
-                    <span class="logo-emoji">🛒</span>
-                    <h1>הקניות שלנו</h1>
+                    <span class="logo-emoji">🤖</span>
+                    <h1>חבי</h1>
                 </div>
                 <div class="header-actions">
                     <button id="view-toggle-btn" class="btn btn-secondary" title="שנה תצוגה">
@@ -35,6 +35,9 @@
                     </button>
                     <button id="scan-receipt-btn" class="btn btn-secondary" title="סרוק קבלה">
                         <span class="icon">📸</span>
+                    </button>
+                    <button id="share-family-btn" class="btn btn-secondary" title="שתף רשימה עם המשפחה">
+                        <span class="icon">👨‍👩‍👧</span>
                     </button>
                     <button id="optimize-cart-btn" class="btn btn-primary" title="השוואת מחירים (חסוך בסל)">
                         <span class="icon">💰</span>
@@ -62,6 +65,9 @@
 
         <!-- Main Content -->
         <main class="content-area">
+            <!-- Price Alerts Banner (injected by JS when watching items) -->
+            <div id="price-alerts-banner" style="display:none;"></div>
+
             <!-- Smart Suggestions (hidden by default, injected by JS) -->
             <div id="smart-suggestions-container"></div>
 

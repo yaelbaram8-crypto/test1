@@ -33,16 +33,35 @@ serve(async (req) => {
     )
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    // כאן בעתיד נבצע קריאה ל-API שמפעיל את 
-    // ה- "israeli-grocery-price-intelligence"
-    // כרגע נייצר נתוני "Mock" (דוגמה) של המידע שמוחזר מהסקיל
+    // TODO: החלף את המוק בקריאה אמיתית ל-API של מחירי מכולת ישראלי.
+    //
+    // ה-API הצפוי מקבל: { itemName: string, storeName?: string }
+    // וחוזר במבנה הבא:
+    // {
+    //   productName: string,
+    //   barcode: string,        // EAN-13
+    //   brand: string,
+    //   prices: Array<{
+    //     chain: string,        // שם הרשת (כמו ב-supermarket_chains)
+    //     price: string,        // מחיר בשקלים עם 2 ספרות אחרי הנקודה
+    //     isPromo: boolean
+    //   }>
+    // }
+    //
+    // לדוגמה:
+    // const apiRes = await fetch('https://your-price-api.com/search', {
+    //   method: 'POST',
+    //   headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('PRICE_API_KEY')}` },
+    //   body: JSON.stringify({ itemName, storeName })
+    // })
+    // const skillIntelligenceResponse = await apiRes.json()
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    
-    // מוק לתוצאות חיפוש מהסקיל (יוחלף בקריאת רשת אמיתית (fetch) לשירות AI)
+
+    // Mock זמני — יוחלף בקריאה לעיל
     const skillIntelligenceResponse = {
         productName: itemName,
         barcode: `729000${Math.floor(Math.random() * 9999)}`,
-        brand: "תנובה/שטראוס", 
+        brand: "תנובה/שטראוס",
         prices: [
             { chain: "Shufersal", price: (Math.random() * 10 + 5).toFixed(2), isPromo: false },
             { chain: "Rami Levy", price: (Math.random() * 10 + 4).toFixed(2), isPromo: true }

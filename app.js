@@ -11,6 +11,19 @@ const SUPABASE_KEY = APP_CONFIG.SUPABASE_KEY || 'your-publishable-key';
 class ShoppingApp {
     constructor() {
         this.items = [];
+        this.cartOptimization = null; // תוצאות אחרונות של אופטימיזציית עגלה
+
+        // Family code — URL param → localStorage → uuid חדש
+        this.familyCode = new URLSearchParams(window.location.search).get('family')
+            || localStorage.getItem('family_code')
+            || (() => {
+                const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+                localStorage.setItem('family_code', code);
+                return code;
+            })();
+        // שמור תמיד ב-localStorage כדי שקישור ייצא עם הקוד הנכון
+        localStorage.setItem('family_code', this.familyCode);
+
         this.categories = {
             'fruits_veg': { name: 'ירקות ופירות', emoji: '🥦', items: ['עגבניה', 'מלפפון', 'בצל', 'תפוח', 'בננה', 'חסה', 'גזר', 'פלפל', 'פטריות', 'תפו"א', 'לימון', 'אבוקדו'] },
             'dairy': { name: 'מוצרי חלב וביצים', emoji: '🧀', items: ['חלב', 'גבינה', 'קוטג\'', 'יוגורט', 'ביצים', 'חמאה', 'שמנת', 'צהובה', 'מעדן'] },
@@ -41,7 +54,8 @@ class ShoppingApp {
         this.setupRealtime();
         this.render();
         this.priceModule.init(this.supabase);
-        console.log("🚀 Shopping App Initialized with Supabase");
+        this.priceModule.checkPriceAlerts(this.familyCode);
+        console.log("🚀 חבי - סוכן החיסכון בסופר | מאותחל עם Supabase");
     }
 
 
@@ -103,6 +117,21 @@ class ShoppingApp {
             this.optimizeBtn.addEventListener('click', () => this.optimizeCartPrices());
         }
 
+        // Family sharing
+        const shareBtn = document.getElementById('share-family-btn');
+        if (shareBtn) {
+            shareBtn.addEventListener('click', () => {
+                const url = `${location.origin}${location.pathname}?family=${this.familyCode}`;
+                if (navigator.share) {
+                    navigator.share({ title: 'הרשימה שלנו 🛒', url });
+                } else {
+                    navigator.clipboard?.writeText(url).then(() =>
+                        alert(`קישור הועתק:\n${url}\nשתפו עם בני המשפחה כדי לעבוד על אותה רשימה.`)
+                    );
+                }
+            });
+        }
+
         // OCR Scan Trigger
         this.scanBtn.addEventListener('click', () => this.fileInput.click());
         this.fileInput.addEventListener('change', (e) => this.handleReceiptUpload(e));
@@ -152,6 +181,7 @@ class ShoppingApp {
         const { data, error } = await this.supabase
             .from('shopping_items')
             .select('*')
+            .eq('family_code', this.familyCode)
             .order('created_at', { ascending: false });
 
         if (error) {
@@ -248,52 +278,150 @@ class ShoppingApp {
 
     async optimizeCartPrices() {
         const activeItems = this.items.filter(i => !i.completed);
-        if (activeItems.length === 0) {
-            alert("הוסיפו פריטים כדי להשוות מחירים.");
+        if (!activeItems.length) {
+            alert('הוסיפו פריטים לרשימה כדי להשוות מחירים.');
+            return;
+        }
+        if (this.optimizeBtn) this.optimizeBtn.innerHTML = '<span style="font-size:18px">⏳</span>';
+
+        if (!this.supabase || !navigator.onLine) {
+            // Fallback mock
+            const chains = ['שופרסל', 'רמי לוי', 'יוחננוף', 'ויקטורי'];
+            this.items = this.items.map(item => {
+                if (!item.completed) item.priceData = {
+                    chain: chains[Math.floor(Math.random() * chains.length)],
+                    price: parseFloat((Math.random() * 10 + 3).toFixed(2))
+                };
+                return item;
+            });
+            this.render();
+            if (this.optimizeBtn) this.optimizeBtn.innerHTML = '<span class="icon">💰</span>';
             return;
         }
 
-        if (this.optimizeBtn) this.optimizeBtn.innerHTML = '<span style="font-size:18px;">⏳</span>';
+        try {
+            // שלב 1: חפש כל פריטי העגלה במקביל (Promise.all, לא loop סדרתי)
+            const searches = await Promise.all(
+                activeItems.map(item =>
+                    this.supabase.rpc('search_products', { query_text: item.text, result_limit: 1 })
+                )
+            );
 
-        if (this.supabase && navigator.onLine) {
-            // מחירים אמיתיים מ-Supabase — חיפוש + מחיר הזול לכל פריט
-            for (const item of activeItems) {
-                try {
-                    const { data: found } = await this.supabase.rpc('search_products', {
-                        query_text: item.text, result_limit: 1
-                    });
-                    if (found?.length) {
-                        const { data: prices } = await this.supabase.rpc('get_product_prices', {
-                            p_product_id: found[0].id
-                        });
-                        if (prices?.length) {
-                            item.priceData = {
-                                chain: prices[0].chain_name,
-                                price: parseFloat(prices[0].price)
-                            };
-                        }
+            const matched = [];
+            searches.forEach((res, i) => {
+                if (res.data?.[0]) matched.push({ item: activeItems[i], product: res.data[0] });
+            });
+
+            if (!matched.length) {
+                alert('לא נמצאו מוצרים מתאימים במאגר — ייתכן שהמאגר עדיין מתמלא.');
+                return;
+            }
+
+            // שלב 2: שלוף מחירים לכל המוצרים בקריאה אחת (get_prices_bulk)
+            const productIds = matched.map(m => m.product.id);
+            const { data: allPrices = [] } = await this.supabase.rpc('get_prices_bulk', {
+                p_product_ids: productIds
+            });
+
+            // שלב 3: בנה מפת עגלה per-chain
+            const chainMap = {};
+            for (const { item, product } of matched) {
+                const productPrices = allPrices.filter(p => p.product_id === product.id); // ממוין ASC
+                const cheapest = productPrices[0];
+
+                // עדכן תצוגה ב-item row
+                if (cheapest) {
+                    item.priceData = { chain: cheapest.chain_name, price: parseFloat(cheapest.price) };
+                }
+
+                // הוסף לכל רשת את מחיר הפריט הזה (ממוין כבר = הזול ביותר)
+                for (const p of productPrices) {
+                    if (!chainMap[p.chain_name]) {
+                        chainMap[p.chain_name] = {
+                            chain_name: p.chain_name, logo_url: p.logo_url,
+                            total: 0, found: 0, items: []
+                        };
                     }
-                } catch (e) {
-                    console.warn(`price lookup failed for "${item.text}":`, e.message);
+                    // רק המחיר הזול של הפריט הזה ברשת הזו (first entry per product per chain)
+                    const alreadyAdded = chainMap[p.chain_name].items.some(it => it.name === item.text);
+                    if (!alreadyAdded) {
+                        const qty = item.quantity || 1;
+                        chainMap[p.chain_name].total += parseFloat(p.price) * qty;
+                        chainMap[p.chain_name].found++;
+                        chainMap[p.chain_name].items.push({
+                            name: item.text, qty,
+                            price: parseFloat(p.price),
+                            isPromo: p.is_promotional
+                        });
+                    }
                 }
             }
-            this.items = [...this.items];
-        } else {
-            // fallback: mock (אין Supabase או offline)
-            const chains = ["שופרסל", "רמי לוי", "יוחננוף", "ויקטורי"];
-            this.items = this.items.map(item => {
-                if (!item.completed) {
-                    item.priceData = {
-                        chain: chains[Math.floor(Math.random() * chains.length)],
-                        price: parseFloat((Math.random() * 10 + 3).toFixed(2))
-                    };
-                }
-                return item;
-            });
-        }
 
-        if (this.optimizeBtn) this.optimizeBtn.innerHTML = '<span class="icon">💰</span>';
-        this.render();
+            this.cartOptimization = {
+                matched: matched.length,
+                total: activeItems.length,
+                chains: Object.values(chainMap).sort((a, b) => a.total - b.total)
+            };
+
+            this.items = [...this.items];
+            this.render();
+            this._showOptimizationPanel();
+        } catch (err) {
+            console.error('Optimization error:', err);
+            alert('שגיאה בהשוואת מחירים. נסו שוב.');
+        } finally {
+            if (this.optimizeBtn) this.optimizeBtn.innerHTML = '<span class="icon">💰</span>';
+        }
+    }
+
+    _showOptimizationPanel() {
+        const opt = this.cartOptimization;
+        if (!opt?.chains?.length) return;
+
+        document.getElementById('opt-panel')?.remove();
+        const panel = document.createElement('div');
+        panel.id = 'opt-panel';
+        panel.className = 'opt-panel';
+
+        const best = opt.chains[0];
+        const savings = opt.chains.length > 1
+            ? (opt.chains[opt.chains.length - 1].total - best.total).toFixed(2)
+            : null;
+
+        panel.innerHTML = `
+            <div class="opt-panel-header">
+                <div>
+                    <div class="opt-panel-title">השוואת עגלה (${opt.matched}/${opt.total} פריטים)</div>
+                    ${savings ? `<div class="opt-savings">חיסכון של עד ₪${savings} ביחס לרשת היקרה ביותר</div>` : ''}
+                </div>
+                <button class="opt-close-btn" onclick="document.getElementById('opt-panel').remove()">✕</button>
+            </div>
+            <div class="opt-chains">
+                ${opt.chains.map((ch, idx) => `
+                    <div class="opt-chain-card ${idx === 0 ? 'opt-chain-best' : ''}">
+                        <div class="opt-chain-header">
+                            ${ch.logo_url ? `<img class="price-chain-logo" src="${ch.logo_url}" alt="${ch.chain_name}" onerror="this.style.display='none'">` : ''}
+                            <div>
+                                <div class="opt-chain-name">${ch.chain_name}${idx === 0 ? ' 🏆' : ''}</div>
+                                <div class="opt-chain-sub">${ch.found} מתוך ${opt.total} פריטים</div>
+                            </div>
+                            <div class="opt-chain-total">₪${ch.total.toFixed(2)}</div>
+                        </div>
+                        <div class="opt-items-list">
+                            ${ch.items.map(it => `
+                                <div class="opt-item-row">
+                                    <span>${it.name}${it.qty > 1 ? ` ×${it.qty}` : ''}${it.isPromo ? ' <span class="price-promo-badge">מבצע</span>' : ''}</span>
+                                    <span>₪${(it.price * it.qty).toFixed(2)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+
+        document.querySelector('.content-area').prepend(panel);
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     setLoading(isLoading, message = "") {
@@ -324,7 +452,7 @@ class ShoppingApp {
         }
 
         const categoryId = this.detectCategory(text);
-        const newItem = { text, completed: false, category_id: categoryId, quantity: qty };
+        const newItem = { text, completed: false, category_id: categoryId, quantity: qty, family_code: this.familyCode };
 
         // שמור מחיר אם נבחר מהקטלוג
         const catalogProduct = this.selectedCatalogProduct;
@@ -361,32 +489,24 @@ class ShoppingApp {
         if (!dropdown) return;
         if (!this.supabase) { dropdown.innerHTML = ''; return; }
 
+        // search_products מחזיר cheapest_price + cheapest_chain ישירות — ללא N+1
         const { data: products } = await this.supabase.rpc('search_products', {
             query_text: query, result_limit: 8
         });
         if (!products?.length) { dropdown.innerHTML = ''; return; }
 
-        // שלוף מחיר זול לכל מוצר
-        const rows = await Promise.all(products.map(async p => {
-            const { data: prices } = await this.supabase.rpc('get_product_prices', {
-                p_product_id: p.id
-            });
-            const cheapest = prices?.[0];
-            return { ...p, cheapest };
-        }));
-
-        dropdown.innerHTML = rows.map(p => `
+        dropdown.innerHTML = products.map(p => `
             <div class="catalog-option" data-id="${p.id}">
                 <span class="catalog-option-name">${p.product_name}</span>
-                ${p.cheapest
-                    ? `<span class="catalog-option-price">✨ ₪${Number(p.cheapest.price).toFixed(2)} ב${p.cheapest.chain_name}</span>`
+                ${p.cheapest_price != null
+                    ? `<span class="catalog-option-price">₪${Number(p.cheapest_price).toFixed(2)} ב${p.cheapest_chain}</span>`
                     : `<span class="catalog-option-free">ללא מחיר</span>`}
             </div>
         `).join('');
 
         dropdown.querySelectorAll('.catalog-option').forEach(el => {
             el.addEventListener('click', () => {
-                const product = rows.find(p => p.id === el.dataset.id);
+                const product = products.find(p => p.id === el.dataset.id);
                 this.itemInput.value = product.product_name;
                 this.selectedCatalogProduct = product;
                 this._closeCatalogDropdown();
@@ -874,42 +994,72 @@ class PriceCompareModule {
 
         const isStale = (Date.now() - new Date(cheapest.scraped_at)) > 48 * 3600000;
 
+        const priceTrend = (current, previous) => {
+            if (previous == null) return '';
+            if (current < previous) return `<span class="price-trend up">↓ ירד מ-₪${Number(previous).toFixed(2)}</span>`;
+            if (current > previous) return `<span class="price-trend down">↑ עלה מ-₪${Number(previous).toFixed(2)}</span>`;
+            return '';
+        };
+
         panel.innerHTML = `
             <div class="price-panel-header">
                 <div>
                     <div class="price-panel-title">${this.selectedProduct.product_name}</div>
                     <div class="price-panel-meta">ברקוד: ${this.selectedProduct.barcode} &nbsp;·&nbsp; ${prices.length} רשתות</div>
                 </div>
-                <button class="btn btn-primary price-add-btn"
-                        onclick="window.app.addItem('${this.selectedProduct.product_name.replace(/'/g, "\\'")}')">
-                    + הוסף לרשימה
-                </button>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button class="btn btn-secondary price-watch-btn" title="עקוב אחרי המחיר"
+                            onclick="window.app.priceModule.watchPrice()">⭐ עקוב</button>
+                    <button class="btn btn-primary price-add-btn"
+                            onclick="window.app.addItem('${this.selectedProduct.product_name.replace(/'/g, "\\'")}')">
+                        + הוסף
+                    </button>
+                </div>
             </div>
 
             <div class="price-cheapest-label">🏆 הכי זול</div>
-            <div class="price-cheapest-card">
-                <span class="price-chain-name">${cheapest.chain_name}</span>
-                <div style="display:flex;align-items:center;gap:8px;">
-                    ${cheapest.is_promotional ? '<span class="price-promo-badge">מבצע</span>' : ''}
-                    <span class="price-amount cheapest">₪${Number(cheapest.price).toFixed(2)}</span>
+            <div class="price-cheapest-card${isStale ? ' price-row-stale' : ''}">
+                <div class="price-chain-info">
+                    ${cheapest.logo_url ? `<img class="price-chain-logo" src="${cheapest.logo_url}" alt="${cheapest.chain_name}" onerror="this.style.display='none'">` : ''}
+                    <div>
+                        <span class="price-chain-name">${cheapest.chain_name}</span>
+                        <div class="price-row-freshness">${formatFreshness(cheapest.scraped_at)}</div>
+                    </div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        ${cheapest.is_promotional ? '<span class="price-promo-badge">מבצע</span>' : ''}
+                        <span class="price-amount cheapest">₪${Number(cheapest.price).toFixed(2)}</span>
+                    </div>
+                    ${priceTrend(cheapest.price, cheapest.previous_price)}
                 </div>
             </div>
 
             ${rest.length ? `
             <div class="price-rest-label">שאר הרשתות</div>
             <div class="price-rest-list">
-                ${rest.map(p => `
-                    <div class="price-row">
-                        <span class="price-chain-name">${p.chain_name}</span>
-                        <div style="display:flex;align-items:center;gap:8px;">
-                            ${p.is_promotional ? '<span class="price-promo-badge">מבצע</span>' : ''}
-                            <span class="price-amount">₪${Number(p.price).toFixed(2)}</span>
+                ${rest.map(p => {
+                    const rowStale = (Date.now() - new Date(p.scraped_at)) > 48 * 3600000;
+                    return `
+                    <div class="price-row${rowStale ? ' price-row-stale' : ''}">
+                        <div class="price-chain-info">
+                            ${p.logo_url ? `<img class="price-chain-logo" src="${p.logo_url}" alt="${p.chain_name}" onerror="this.style.display='none'">` : ''}
+                            <div>
+                                <span class="price-chain-name">${p.chain_name}</span>
+                                <div class="price-row-freshness">${formatFreshness(p.scraped_at)}</div>
+                            </div>
                         </div>
-                    </div>
-                `).join('')}
+                        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                ${p.is_promotional ? '<span class="price-promo-badge">מבצע</span>' : ''}
+                                <span class="price-amount">₪${Number(p.price).toFixed(2)}</span>
+                            </div>
+                            ${priceTrend(p.price, p.previous_price)}
+                        </div>
+                    </div>`;
+                }).join('')}
             </div>` : ''}
 
-            <div class="price-freshness">${formatFreshness(cheapest.scraped_at)}</div>
             ${isStale ? '<div class="price-stale-warning">⚠️ נתונים ישנים מעל 48 שעות — ייתכן שהמחירים השתנו</div>' : ''}
 
             ${(() => {
@@ -1010,16 +1160,102 @@ class PriceCompareModule {
         const panel = document.getElementById('price-panel');
         panel.innerHTML = `<div class="price-loading">מחפש ברקוד ${barcode}...</div>`;
 
-        // TODO שלב 9: החלף ב-
-        // const { data } = await this.supabase.from('market_products').select('*').eq('barcode', barcode).single()
-        await new Promise(r => setTimeout(r, 400));
-        const product = MOCK_PRODUCTS.find(p => p.barcode === barcode);
+        if (!this.supabase || !navigator.onLine) {
+            const product = MOCK_PRODUCTS.find(p => p.barcode === barcode);
+            if (!product) {
+                panel.innerHTML = `<div class="empty-state"><p>ברקוד ${barcode} לא נמצא במאגר</p><small>המאגר מתעדכן כל לילה</small></div>`;
+                return;
+            }
+            this._onProductSelected(product);
+            return;
+        }
+
+        const { data: product, error } = await this.supabase
+            .from('market_products')
+            .select('*')
+            .eq('barcode', barcode)
+            .maybeSingle();
+
+        if (error) {
+            panel.innerHTML = `<div class="empty-state"><p>שגיאה בחיפוש ברקוד</p><small>${error.message}</small></div>`;
+            return;
+        }
 
         if (!product) {
-            panel.innerHTML = `<div class="empty-state"><p>ברקוד ${barcode} לא נמצא במאגר</p><small>המאגר מתעדכן כל לילה</small></div>`;
+            // Fallback: cheapersal API (100 req/day free)
+            panel.innerHTML = `<div class="price-loading">מחפש ב-Cheapersal...</div>`;
+            try {
+                const ext = await fetch(`https://cheapersal.co.il/api/v1/products/${barcode}`, {
+                    signal: AbortSignal.timeout(8000)
+                });
+                if (ext.ok) {
+                    const extData = await ext.json();
+                    if (extData?.barcode) {
+                        this._onProductSelected({
+                            id: extData.barcode,
+                            barcode: extData.barcode,
+                            product_name: extData.name ?? extData.product_name ?? barcode,
+                            brand: extData.brand ?? ''
+                        });
+                        return;
+                    }
+                }
+            } catch { /* fallback נכשל — הצג "לא נמצא" */ }
+
+            panel.innerHTML = `<div class="empty-state"><p>ברקוד ${barcode} לא נמצא</p><small>המאגר מתעדכן כל לילה בשעה 4</small></div>`;
             return;
         }
         this._onProductSelected(product);
+    }
+
+    // ── Price Watch ──────────────────────────────────────────
+    async watchPrice() {
+        if (!this.selectedProduct || !this.supabase) return;
+        const p = this.selectedProduct;
+        const targetStr = prompt(`עקוב אחרי: ${p.product_name}\n\nהזן מחיר מטרה (₪) — השאר ריק לכל ירידה:`, '');
+        if (targetStr === null) return; // ביטול
+
+        const target = targetStr.trim() ? parseFloat(targetStr) : null;
+        if (target !== null && isNaN(target)) { alert('מחיר לא תקין'); return; }
+
+        const { error } = await this.supabase.from('watched_items').upsert({
+            product_id:   p.id,
+            product_name: p.product_name,
+            barcode:      p.barcode,
+            family_code:  window.app?.familyCode ?? 'default',
+            target_price: target
+        }, { onConflict: 'product_id,family_code' });
+
+        if (error) { alert('שגיאה בשמירת מעקב'); return; }
+        alert(`✅ עוקבים אחרי ${p.product_name}${target ? ` — תתרענן כשמחיר ≤ ₪${target}` : ''}`);
+    }
+
+    async checkPriceAlerts(familyCode) {
+        if (!this.supabase) return;
+        const { data: alerts } = await this.supabase.rpc('get_watched_alerts', {
+            p_family_code: familyCode
+        });
+        if (!alerts?.length) return;
+
+        const container = document.getElementById('price-alerts-banner');
+        if (!container) return;
+
+        container.innerHTML = `
+            <div class="price-alerts">
+                <div class="price-alerts-title">🔔 עדכוני מחיר על פריטים שעוקבים</div>
+                ${alerts.map(a => `
+                    <div class="price-alert-row">
+                        ${a.logo_url ? `<img class="price-chain-logo" src="${a.logo_url}" onerror="this.style.display='none'">` : ''}
+                        <div class="price-alert-info">
+                            <strong>${a.product_name}</strong>
+                            <span>₪${Number(a.current_price).toFixed(2)} ב${a.chain_name}${a.is_promotional ? ' 🏷️' : ''}</span>
+                        </div>
+                        ${a.target_price ? `<span class="price-alert-target">מטרה: ₪${Number(a.target_price).toFixed(2)}</span>` : ''}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        container.style.display = 'block';
     }
 
     // ── Mock Data (יוסר בשלב 9) ──────────────────────────────

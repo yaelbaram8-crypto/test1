@@ -41,39 +41,7 @@ const CHAINS = [
         fileBaseUrl: 'http://prices.shufersal.co.il'
     },
 
-    // --- פלטפורמת Cerberus (כל רשת עם credentials נפרדים) ---
-    {
-        name: 'רמי לוי',
-        platform: 'cerberus',
-        user: process.env.RAMI_LEVY_USER,
-        pass: process.env.RAMI_LEVY_PASS
-    },
-    {
-        name: 'ויקטורי',
-        platform: 'cerberus',
-        user: process.env.VICTORY_USER,
-        pass: process.env.VICTORY_PASS
-    },
-    {
-        name: 'קשת טעמים',
-        platform: 'cerberus',
-        user: process.env.KESHET_TAAMIM_USER,
-        pass: process.env.KESHET_TAAMIM_PASS
-    },
-    {
-        name: 'יינות ביתן',
-        platform: 'cerberus',
-        user: process.env.YEINOT_BITAN_USER,
-        pass: process.env.YEINOT_BITAN_PASS
-    },
-    {
-        name: 'סטופ מרקט',
-        platform: 'cerberus',
-        user: process.env.STOP_MARKET_USER,
-        pass: process.env.STOP_MARKET_PASS
-    },
-
-    // --- Cerberus FTP (url.retail.publishedprices.co.il) — FTP ללא סיסמה ---
+    // --- Cerberus FTP (url.retail.publishedprices.co.il) — FTP ציבורי ללא סיסמה ---
     {
         name: 'טיב טעם',
         platform: 'cerberus_ftp',
@@ -95,7 +63,56 @@ const CHAINS = [
         user: 'yohananof',
         pass: process.env.YOCHANANOF_PASS || ''
     },
-    // חצי חינם / נתיב החסד / מחסני השוק — דומיינים לא פעילים, הוסר
+    {
+        name: 'רמי לוי',
+        platform: 'cerberus_ftp',
+        ftpHost: 'url.retail.publishedprices.co.il',
+        user: 'RamiLevi',
+        pass: ''
+    },
+    {
+        name: 'קשת טעמים',
+        platform: 'cerberus_ftp',
+        ftpHost: 'url.retail.publishedprices.co.il',
+        user: 'Keshet',
+        pass: ''
+    },
+    {
+        name: 'סטופ מרקט',
+        platform: 'cerberus_ftp',
+        ftpHost: 'url.retail.publishedprices.co.il',
+        user: 'Stop_Market',
+        pass: ''
+    },
+
+    // --- Laibcatalog (ויקטורי + מחסני השוק + ח. כהן) — JSON API ציבורי ---
+    {
+        name: 'ויקטורי',
+        platform: 'laibcatalog',
+        edi: '7290696200003'
+    },
+    {
+        name: 'מחסני השוק',
+        platform: 'laibcatalog',
+        edi: '7290661400001'
+    },
+    {
+        name: "ח. כהן",
+        platform: 'laibcatalog',
+        edi: '7290455000004'
+    },
+
+    // --- Generic HTML (חצי חינם + יינות ביתן) — דף רשימת קבצים ציבורי ---
+    {
+        name: 'חצי חינם',
+        platform: 'generic_html',
+        listUrl: 'https://shop.hazi-hinam.co.il/Prices'
+    },
+    {
+        name: 'יינות ביתן',
+        platform: 'generic_html',
+        listUrl: 'https://prices.carrefour.co.il/'
+    },
 ];
 
 // =========================================================
@@ -103,8 +120,10 @@ const CHAINS = [
 // =========================================================
 
 /** שופרסל - HTML עם links לקבצי GZ */
-async function fetchShufersal(chain) {
-    const res = await fetch(chain.listUrl, {
+async function fetchShufersal(chain, fileType='PriceFull') {
+    const catID = fileType === 'PromoFull' ? 3 : 2;
+    const listUrl = chain.listUrl.replace(/catID=\d+/, `catID=${catID}`);
+    const res = await fetch(listUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PriceBot/1.0)' },
         signal: AbortSignal.timeout(30000)
     });
@@ -115,16 +134,16 @@ async function fetchShufersal(chain) {
     html = html.replace(/&amp;/g, '&');
 
     // רגקס גמיש — מאפשר פרמטרים אחרי .gz (למשל &relaPath=None)
-    let matches = [...html.matchAll(/href="([^"]*PriceFull[^"]*\.gz[^"]*)"/gi)];
+    let matches = [...html.matchAll(new RegExp(`href="([^"]*${fileType}[^"]*\\.gz[^"]*)"`, 'gi'))];
 
     if (!matches.length) {
         // diagnostic — הדפס 2000 תווים ראשונים לדיבאג
         console.log(`  🔍 HTML snippet:\n${html.substring(0, 2000)}`);
-        throw new Error('לא נמצאו קבצי PriceFull ב-Shufersal');
+        throw new Error(`לא נמצאו קבצי ${fileType} ב-Shufersal`);
     }
 
     const href = matches[0][1];
-    const fileUrl = href.startsWith('http') ? href : new URL(href, chain.listUrl).toString();
+    const fileUrl = href.startsWith('http') ? href : new URL(href, listUrl).toString();
     console.log(`  ⬇️  ${fileUrl}`);
     return fetchAndParseXml(fileUrl);
 }
@@ -170,7 +189,7 @@ async function fetchCerberus(chain) {
 }
 
 /** Generic HTML - מחפש קישורי GZ בדף רשימת קבצים */
-async function fetchGenericHtml(chain) {
+async function fetchGenericHtml(chain, fileType='PriceFull') {
     const res = await fetch(chain.listUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PriceBot/1.0)' },
         signal: AbortSignal.timeout(30000)
@@ -181,11 +200,11 @@ async function fetchGenericHtml(chain) {
     html = html.replace(/&amp;/g, '&');
 
     // רגקס גמיש — מאפשר פרמטרים אחרי .gz
-    const matches = [...html.matchAll(/href="([^"]*PriceFull[^"]*\.gz[^"]*)"/gi)];
+    const matches = [...html.matchAll(new RegExp(`href="([^"]*${fileType}[^"]*\\.gz[^"]*)"`, 'gi'))];
 
     if (!matches.length) {
         console.log(`  🔍 HTML snippet:\n${html.substring(0, 1500)}`);
-        throw new Error(`לא נמצאו קבצי PriceFull ב-${chain.name} (${chain.listUrl})`);
+        throw new Error(`לא נמצאו קבצי ${fileType} ב-${chain.name} (${chain.listUrl})`);
     }
 
     const href = matches[0][1];
@@ -194,8 +213,31 @@ async function fetchGenericHtml(chain) {
     return fetchAndParseXml(fileUrl);
 }
 
+/** Laibcatalog - JSON API ציבורי (ויקטורי, מחסני השוק, ח. כהן) */
+async function fetchLaibcatalog(chain, fileType='PriceFull') {
+    const base = 'https://laibcatalog.co.il/webapi';
+
+    const filesRes = await fetch(`${base}/api/getfiles?edi=${chain.edi}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PriceBot/1.0)' },
+        signal: AbortSignal.timeout(30000)
+    });
+    if (!filesRes.ok) throw new Error(`laibcatalog getfiles HTTP ${filesRes.status}`);
+    const files = await filesRes.json();
+
+    const priceFiles = (Array.isArray(files) ? files : files.data ?? [])
+        .filter(f => (f.name ?? f.FileNm ?? '').startsWith(fileType))
+        .sort((a, b) => ((b.last_modified ?? b.FileUpdateTime ?? '') > (a.last_modified ?? a.FileUpdateTime ?? '') ? 1 : -1));
+
+    if (!priceFiles.length) throw new Error(`לא נמצאו קבצי ${fileType} ב-${chain.name}`);
+
+    const fileName = priceFiles[0].name ?? priceFiles[0].FileNm;
+    const fileUrl = `${base}/${chain.edi}/${fileName}`;
+    console.log(`  ⬇️  ${fileUrl}`);
+    return fetchAndParseXml(fileUrl);
+}
+
 /** Cerberus FTP - מוריד PriceFull אחרון דרך FTP (ללא TLS) */
-async function fetchCerberusFtp(chain) {
+async function fetchCerberusFtp(chain, fileType='PriceFull') {
     const client = new ftp.Client();
     client.ftp.verbose = false;
     try {
@@ -208,10 +250,10 @@ async function fetchCerberusFtp(chain) {
 
         const list = await client.list('/');
         const priceFiles = list
-            .filter(f => f.name.startsWith('PriceFull'))
+            .filter(f => f.name.startsWith(fileType))
             .sort((a, b) => b.size - a.size); // הגדול ביותר = קטלוג המלא
 
-        if (!priceFiles.length) throw new Error(`לא נמצאו קבצי PriceFull עבור ${chain.name}`);
+        if (!priceFiles.length) throw new Error(`לא נמצאו קבצי ${fileType} עבור ${chain.name}`);
 
         const fileName = priceFiles[0].name;
         console.log(`  ⬇️  ftp://${chain.ftpHost}/${fileName}`);
@@ -261,6 +303,33 @@ function extractProducts(parsed) {
         });
     }
     return products;
+}
+
+function extractPromos(parsed) {
+    const root = parsed.root ?? parsed.Root ?? Object.values(parsed)[0];
+    const promosNode = root?.Promotions ?? root?.Sales;
+    if (!promosNode) return new Set();
+
+    const rawPromos = promosNode.Promotion ?? promosNode.Sale ?? promosNode.Item ?? [];
+    const promos = Array.isArray(rawPromos) ? rawPromos : [rawPromos];
+
+    const todayNum = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // '20260407'
+
+    const promoSet = new Set();
+    for (const promo of promos) {
+        const rawStart = String(promo.PromotionStartDate ?? promo.StartDate ?? '20000101').replace(/-/g, '');
+        const rawEnd   = String(promo.PromotionEndDate   ?? promo.EndDate   ?? '20991231').replace(/-/g, '');
+        if (rawStart > todayNum || todayNum > rawEnd) continue;
+
+        const itemsNode = promo.Items ?? promo.PromotionItems ?? promo;
+        const rawItems = itemsNode?.Item ?? itemsNode?.Product ?? [];
+        const items = Array.isArray(rawItems) ? rawItems : [rawItems];
+        for (const item of items) {
+            const barcode = String(item.ItemCode ?? item.Barcode ?? '').trim();
+            if (barcode) promoSet.add(barcode);
+        }
+    }
+    return promoSet;
 }
 
 // =========================================================
@@ -344,6 +413,34 @@ async function upsertProducts(products, chainId) {
     return updated;
 }
 
+async function upsertPromos(promoBarcodesSet, chainId) {
+    const BATCH = 500;
+
+    // 1. Reset all promo flags for this chain
+    await supabase.from('market_prices').update({ is_promotional: false }).eq('chain_id', chainId);
+    if (!promoBarcodesSet.size) return;
+
+    // 2. Find product IDs for promo barcodes
+    const barcodes = [...promoBarcodesSet];
+    const promoProductIds = [];
+    for (let i = 0; i < barcodes.length; i += BATCH) {
+        const { data } = await supabase
+            .from('market_products').select('id')
+            .in('barcode', barcodes.slice(i, i + BATCH));
+        (data ?? []).forEach(p => promoProductIds.push(p.id));
+    }
+    if (!promoProductIds.length) return;
+
+    // 3. Mark promo=true for matched products in this chain
+    for (let i = 0; i < promoProductIds.length; i += BATCH) {
+        await supabase.from('market_prices')
+            .update({ is_promotional: true })
+            .eq('chain_id', chainId)
+            .in('product_id', promoProductIds.slice(i, i + BATCH));
+    }
+    console.log(`  🏷️  ${promoProductIds.length} מוצרים מסומנים כמבצע`);
+}
+
 // =========================================================
 // Main
 // =========================================================
@@ -353,6 +450,7 @@ async function syncChain(chain) {
         case 'shufersal':    parsed = await fetchShufersal(chain);    break;
         case 'cerberus':     parsed = await fetchCerberus(chain);     break;
         case 'cerberus_ftp': parsed = await fetchCerberusFtp(chain);  break;
+        case 'laibcatalog':  parsed = await fetchLaibcatalog(chain);  break;
         case 'generic_html': parsed = await fetchGenericHtml(chain);  break;
         default: throw new Error(`פלטפורמה לא מוכרת: ${chain.platform}`);
     }
@@ -364,6 +462,23 @@ async function syncChain(chain) {
     const chainId = await getOrCreateChain(chain.name);
     const count = await upsertProducts(products, chainId);
     console.log(`  ✅ עודכנו ${count.toLocaleString()} מחירים ב-Supabase`);
+
+    // Promo sync (אופציונלי — לא כשל אם PromoFull לא זמין)
+    try {
+        console.log(`  🏷️  סנכרון פרומו...`);
+        let promoParsed;
+        switch (chain.platform) {
+            case 'shufersal':    promoParsed = await fetchShufersal(chain, 'PromoFull');    break;
+            case 'cerberus':     promoParsed = await fetchCerberus(chain, 'PromoFull');     break;
+            case 'cerberus_ftp': promoParsed = await fetchCerberusFtp(chain, 'PromoFull');  break;
+            case 'laibcatalog':  promoParsed = await fetchLaibcatalog(chain, 'PromoFull');  break;
+            case 'generic_html': promoParsed = await fetchGenericHtml(chain, 'PromoFull');  break;
+        }
+        const promoSet = extractPromos(promoParsed);
+        await upsertPromos(promoSet, chainId);
+    } catch (err) {
+        console.warn(`  ⚠️  פרומו נכשל (לא קריטי): ${err.message}`);
+    }
 }
 
 async function syncPrices() {

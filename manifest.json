@@ -1,7 +1,7 @@
 {
-  "name": "Family Shopping",
-  "short_name": "משפחתית",
-  "description": "רשימת קניות משפחתית חכמה עם סנכרון בזמן אמת וסריקת קבלות.",
+  "name": "חבי - סוכן החיסכון בסופר",
+  "short_name": "חבי",
+  "description": "חבי הוא סוכן החיסכון שלך בסופר — רשימת קניות משפחתית, השוואת מחירים בין רשתות ומעקב אחרי מבצעים.",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#f8fafc",
