@@ -50,13 +50,26 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS set_updated_at ON shopping_items;
 CREATE TRIGGER set_updated_at
 BEFORE UPDATE ON shopping_items
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- 6. הפעלת Realtime
-ALTER PUBLICATION supabase_realtime ADD TABLE shopping_items;
-ALTER PUBLICATION supabase_realtime ADD TABLE purchase_history;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND tablename = 'shopping_items'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE shopping_items;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND tablename = 'purchase_history'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE purchase_history;
+    END IF;
+END $$;
 
 -- ===================================================
 -- PHASE 2: Smart Purchase Intelligence
@@ -186,6 +199,9 @@ ALTER TABLE supermarket_chains ENABLE ROW LEVEL SECURITY;
 ALTER TABLE market_products    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE market_prices      ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Public access chains"   ON supermarket_chains;
+DROP POLICY IF EXISTS "Public access products" ON market_products;
+DROP POLICY IF EXISTS "Public access prices"   ON market_prices;
 CREATE POLICY "Public access chains"   ON supermarket_chains FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public access products" ON market_products    FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public access prices"   ON market_prices      FOR ALL USING (true) WITH CHECK (true);
@@ -215,6 +231,7 @@ CREATE INDEX IF NOT EXISTS idx_price_history_prod    ON price_history(product_id
 CREATE INDEX IF NOT EXISTS idx_price_history_chain   ON price_history(chain_id, recorded_at DESC);
 
 ALTER TABLE price_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public access price_history" ON price_history;
 CREATE POLICY "Public access price_history" ON price_history FOR ALL USING (true) WITH CHECK (true);
 
 -- 12d. Trigger: בכל upsert ב-market_prices שמשנה מחיר — תרשום ל-price_history
@@ -244,10 +261,16 @@ UPDATE supermarket_chains SET logo_url = 'https://upload.wikimedia.org/wikipedia
 UPDATE supermarket_chains SET logo_url = 'https://upload.wikimedia.org/wikipedia/he/1/14/Yeinot_Bitan_logo.png'                                       WHERE chain_name = 'יינות ביתן';
 UPDATE supermarket_chains SET logo_url = 'https://upload.wikimedia.org/wikipedia/he/thumb/6/61/Osher_Ad_Logo.svg/200px-Osher_Ad_Logo.svg.png'         WHERE chain_name = 'אושר עד';
 UPDATE supermarket_chains SET logo_url = 'https://upload.wikimedia.org/wikipedia/he/thumb/c/c1/Yohananof_logo.svg/200px-Yohananof_logo.svg.png'        WHERE chain_name = 'יוחננוף';
+UPDATE supermarket_chains SET logo_url = 'https://upload.wikimedia.org/wikipedia/he/0/0f/Hazi-Hinam_logo.png'                                               WHERE chain_name = 'חצי חינם';
+UPDATE supermarket_chains SET logo_url = 'https://upload.wikimedia.org/wikipedia/he/e/e9/%D7%9C%D7%95%D7%92%D7%95_%D7%9E%D7%97%D7%A1%D7%A0%D7%99_%D7%94%D7%A9%D7%95%D7%A7.png' WHERE chain_name = 'מחסני השוק';
+UPDATE supermarket_chains SET logo_url = 'https://upload.wikimedia.org/wikipedia/he/d/d7/%D7%A7%D7%A9%D7%AA_%D7%98%D7%A2%D7%9E%D7%99%D7%9D.png'             WHERE chain_name = 'קשת טעמים';
+UPDATE supermarket_chains SET logo_url = 'https://www.stopmarket.co.il/wp-content/uploads/2021/06/logo3.png'                                                WHERE chain_name = 'סטופ מרקט';
+UPDATE supermarket_chains SET logo_url = 'https://lirp.cdn-website.com/05679a53/dms3rep/multi/opt/%D7%9C%D7%9C%D7%90+%D7%A8%D7%A7%D7%A2+%D7%9C%D7%95%D7%92%D7%95+-423w.png' WHERE chain_name = 'ח. כהן';
 
 -- 17. RPC: מחירי כל הרשתות עבור מספר מוצרים בו-זמנית
 --     משמש לאופטימיזציית עגלה — קריאה אחת במקום N+1
 --     קריאה: supabase.rpc('get_prices_bulk', { p_product_ids: ['uuid1','uuid2',...] })
+DROP FUNCTION IF EXISTS get_prices_bulk(UUID[]);
 CREATE OR REPLACE FUNCTION get_prices_bulk(p_product_ids UUID[])
 RETURNS TABLE (
     product_id     UUID,
@@ -290,11 +313,13 @@ CREATE TABLE IF NOT EXISTS watched_items (
 CREATE INDEX IF NOT EXISTS idx_watched_family ON watched_items(family_code);
 
 ALTER TABLE watched_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public access watched" ON watched_items;
 CREATE POLICY "Public access watched" ON watched_items FOR ALL USING (true) WITH CHECK (true);
 
 -- 19. RPC: בדיקת התראות — מחזיר מוצרים שנצפו + מחירם הנוכחי
 --     אם target_price מוגדר — מחזיר רק כשהמחיר הזול ≤ target_price
 --     קריאה: supabase.rpc('get_watched_alerts', { p_family_code: 'ABC123' })
+DROP FUNCTION IF EXISTS get_watched_alerts(TEXT);
 CREATE OR REPLACE FUNCTION get_watched_alerts(p_family_code TEXT)
 RETURNS TABLE (
     watch_id      UUID,
@@ -350,6 +375,7 @@ CREATE INDEX IF NOT EXISTS idx_market_products_brand_trgm
 -- 15. RPC: חיפוש מוצרים לפי טקסט חופשי — מדורג לפי דמיון + מחיר זול בשאילתה אחת
 --     קריאה: supabase.rpc('search_products', { query_text: 'חלב', result_limit: 20 })
 --     שיפור: מחזיר cheapest_price + cheapest_chain ללא N+1 queries
+DROP FUNCTION IF EXISTS search_products(TEXT, INT);
 CREATE OR REPLACE FUNCTION search_products(
     query_text   TEXT,
     result_limit INT DEFAULT 20
@@ -392,6 +418,7 @@ $$;
 
 -- 16b. RPC: היסטוריית מחיר יומית למוצר — לגרף טרנד
 --      קריאה: supabase.rpc('get_price_history', { p_product_id: '...', p_days: 30 })
+DROP FUNCTION IF EXISTS get_price_history(UUID, INT);
 CREATE OR REPLACE FUNCTION get_price_history(
     p_product_id UUID,
     p_days INT DEFAULT 30
@@ -417,6 +444,7 @@ $$;
 -- 16. RPC: שליפת מחירי כל הרשתות למוצר בודד, ממוין מהזול ליקר
 --     שיפור: מחזיר גם previous_price מטבלת price_history לזיהוי טרנד (↑↓→)
 --     קריאה: supabase.rpc('get_product_prices', { p_product_id: '...' })
+DROP FUNCTION IF EXISTS get_product_prices(UUID);
 CREATE OR REPLACE FUNCTION get_product_prices(p_product_id UUID)
 RETURNS TABLE (
     chain_id       UUID,
@@ -477,18 +505,21 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 );
 CREATE INDEX IF NOT EXISTS idx_user_profiles_family ON user_profiles(family_code);
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users manage own profile" ON user_profiles;
 CREATE POLICY "Users manage own profile" ON user_profiles
     FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- RLS אמיתי על shopping_items
-DROP POLICY IF EXISTS "Public access items" ON shopping_items;
+DROP POLICY IF EXISTS "Public access items"  ON shopping_items;
+DROP POLICY IF EXISTS "Family access items"  ON shopping_items;
 CREATE POLICY "Family access items" ON shopping_items
     FOR ALL
     USING  (family_code IN (SELECT family_code FROM user_profiles WHERE user_id = auth.uid()))
     WITH CHECK (family_code IN (SELECT family_code FROM user_profiles WHERE user_id = auth.uid()));
 
 -- RLS אמיתי על purchase_history
-DROP POLICY IF EXISTS "Public access history" ON purchase_history;
+DROP POLICY IF EXISTS "Public access history"  ON purchase_history;
+DROP POLICY IF EXISTS "Family access history"  ON purchase_history;
 CREATE POLICY "Family access history" ON purchase_history
     FOR ALL
     USING  (family_code IN (SELECT family_code FROM user_profiles WHERE user_id = auth.uid()))
@@ -496,6 +527,7 @@ CREATE POLICY "Family access history" ON purchase_history
 
 -- RLS אמיתי על watched_items
 DROP POLICY IF EXISTS "Public access watched" ON watched_items;
+DROP POLICY IF EXISTS "Family access watched" ON watched_items;
 CREATE POLICY "Family access watched" ON watched_items
     FOR ALL
     USING  (family_code IN (SELECT family_code FROM user_profiles WHERE user_id = auth.uid()))
