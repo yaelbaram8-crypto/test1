@@ -390,6 +390,30 @@ LANGUAGE SQL STABLE AS $$
     LIMIT result_limit;
 $$;
 
+-- 16b. RPC: היסטוריית מחיר יומית למוצר — לגרף טרנד
+--      קריאה: supabase.rpc('get_price_history', { p_product_id: '...', p_days: 30 })
+CREATE OR REPLACE FUNCTION get_price_history(
+    p_product_id UUID,
+    p_days INT DEFAULT 30
+)
+RETURNS TABLE (
+    day        DATE,
+    min_price  NUMERIC,
+    chain_name TEXT
+)
+LANGUAGE SQL STABLE AS $$
+    SELECT
+        DATE(ph.recorded_at AT TIME ZONE 'Asia/Jerusalem') AS day,
+        MIN(ph.price)                                       AS min_price,
+        (array_agg(sc.chain_name ORDER BY ph.price ASC))[1] AS chain_name
+    FROM price_history ph
+    JOIN supermarket_chains sc ON sc.id = ph.chain_id
+    WHERE ph.product_id = p_product_id
+      AND ph.recorded_at >= NOW() - (p_days || ' days')::INTERVAL
+    GROUP BY DATE(ph.recorded_at AT TIME ZONE 'Asia/Jerusalem')
+    ORDER BY day ASC;
+$$;
+
 -- 16. RPC: שליפת מחירי כל הרשתות למוצר בודד, ממוין מהזול ליקר
 --     שיפור: מחזיר גם previous_price מטבלת price_history לזיהוי טרנד (↑↓→)
 --     קריאה: supabase.rpc('get_product_prices', { p_product_id: '...' })

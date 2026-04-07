@@ -38,6 +38,17 @@ self.addEventListener('activate', (event) => {
     return self.clients.claim();
 });
 
+// Notification click: פתח/תמקד את האפליקציה
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+    event.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+            if (list.length) return list[0].focus();
+            return clients.openWindow('./');
+        })
+    );
+});
+
 // Fetch: Stale-While-Revalidate Strategy
 self.addEventListener('fetch', (event) => {
     // Only handle GET requests

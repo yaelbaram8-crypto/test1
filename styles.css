@@ -730,6 +730,48 @@ input[type="text"]::placeholder {
 .price-trend.up   { color: #16a34a; } /* ירידת מחיר — ירוק */
 .price-trend.down { color: #dc2626; } /* עלייה — אדום */
 
+/* Price History Chart */
+.price-chart-section {
+    margin: 12px 0 16px;
+    padding: 10px 12px 6px;
+    background: #f0fdf4;
+    border-radius: 10px;
+    border: 1px solid #bbf7d0;
+}
+.price-chart-title {
+    font-size: 0.72rem;
+    color: #166534;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.price-chart-wrap {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+}
+.price-chart-y {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font-size: 0.62rem;
+    color: #6b7280;
+    min-width: 38px;
+    text-align: start;
+}
+.price-chart-svg {
+    flex: 1;
+    height: 60px;
+    display: block;
+}
+.price-chart-dates {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.62rem;
+    color: #9ca3af;
+    margin-top: 2px;
+    padding-inline-start: 44px;
+}
+
 /* Skeleton loading */
 @keyframes shimmer {
     0%   { background-position: -600px 0; }

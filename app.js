@@ -53,9 +53,33 @@ class ShoppingApp {
         await this.fetchItems();
         this.setupRealtime();
         this.render();
+        this._loadPricesBackground();
         this.priceModule.init(this.supabase);
         this.priceModule.checkPriceAlerts(this.familyCode);
         console.log("🚀 חבי - סוכן החיסכון בסופר | מאותחל עם Supabase");
+    }
+
+    async _loadPricesBackground() {
+        if (!this.supabase) return;
+        const activeItems = this.items.filter(i => !i.completed && !i.priceData);
+        if (!activeItems.length) return;
+
+        const results = await Promise.all(
+            activeItems.map(item =>
+                this.supabase.rpc('search_products', { query_text: item.text, result_limit: 1 })
+            )
+        );
+
+        let changed = false;
+        results.forEach((res, i) => {
+            const p = res.data?.[0];
+            if (p?.cheapest_price != null) {
+                activeItems[i].priceData = { chain: p.cheapest_chain, price: parseFloat(p.cheapest_price) };
+                changed = true;
+            }
+        });
+
+        if (changed) this.render();
     }
 
 
@@ -319,9 +343,10 @@ class ShoppingApp {
 
             // שלב 2: שלוף מחירים לכל המוצרים בקריאה אחת (get_prices_bulk)
             const productIds = matched.map(m => m.product.id);
-            const { data: allPrices = [] } = await this.supabase.rpc('get_prices_bulk', {
+            const { data: _pricesData } = await this.supabase.rpc('get_prices_bulk', {
                 p_product_ids: productIds
             });
+            const allPrices = _pricesData ?? [];
 
             // שלב 3: בנה מפת עגלה per-chain
             const chainMap = {};
@@ -616,7 +641,7 @@ class ShoppingApp {
                     <div class="checkbox"></div>
                     <div style="display:flex; flex-direction:column; gap:4px;">
                         <span class="item-text">${item.text}</span>
-                        ${item.priceData && !item.completed ? `<span style="font-size:0.75rem; color:#10b981; font-weight:600;">✨ הכי זול ב${item.priceData.chain}: ₪${item.priceData.price}</span>` : ''}
+                        ${item.priceData?.price && item.priceData?.chain && !item.completed ? `<span style="font-size:0.75rem; color:#10b981; font-weight:600;">₪${item.priceData.price.toFixed(2)} · ${item.priceData.chain}</span>` : ''}
                     </div>
                 </div>
                 <div class="item-controls">
@@ -672,7 +697,7 @@ class ShoppingApp {
 
     _renderCartTotal() {
         const activeItems = this.items.filter(i => !i.completed);
-        const withPrice = activeItems.filter(i => i.priceData?.price);
+        const withPrice = activeItems.filter(i => i.priceData?.price && i.priceData?.chain);
         const total = withPrice.reduce((sum, i) => sum + i.priceData.price * (i.quantity || 1), 0);
 
         // הסר כל סכום קודם
@@ -830,6 +855,8 @@ class PriceCompareModule {
         this.container = document.getElementById('prices-container');
         this.debounceTimer = null;
         this.selectedProduct = null;
+        // בדוק התראות מחיר כל שעה כשהאפליקציה פתוחה
+        setInterval(() => this.checkPriceAlerts(window.app?.familyCode ?? 'default'), 3600000);
     }
 
     show() {
@@ -954,24 +981,26 @@ class PriceCompareModule {
         const panel = document.getElementById('price-panel');
         panel.innerHTML = this._skeletonHTML();
 
-        let prices, allChains = [];
+        let prices, allChains = [], history = [];
         if (this.supabase && navigator.onLine) {
-            const [pricesRes, chainsRes] = await Promise.all([
+            const [pricesRes, chainsRes, historyRes] = await Promise.all([
                 this.supabase.rpc('get_product_prices', { p_product_id: product.id }),
-                this.supabase.from('supermarket_chains').select('chain_name')
+                this.supabase.from('supermarket_chains').select('chain_name'),
+                this.supabase.rpc('get_price_history', { p_product_id: product.id, p_days: 30 })
             ]);
             if (pricesRes.error) console.error('get_product_prices RPC error:', pricesRes.error);
             prices = pricesRes.data ?? [];
             allChains = chainsRes.data?.map(c => c.chain_name) ?? [];
+            history = historyRes.data ?? [];
         } else {
             await new Promise(r => setTimeout(r, 350));
             prices = this._mockPrices(product.id);
         }
 
-        this._renderPricePanel(prices, allChains);
+        this._renderPricePanel(prices, allChains, history);
     }
 
-    _renderPricePanel(prices, allChains = []) {
+    _renderPricePanel(prices, allChains = [], history = []) {
         const panel = document.getElementById('price-panel');
 
         // edge case: אין מחירים
@@ -1017,6 +1046,7 @@ class PriceCompareModule {
                 </div>
             </div>
 
+            ${this._renderPriceChart(history)}
             <div class="price-cheapest-label">🏆 הכי זול</div>
             <div class="price-cheapest-card${isStale ? ' price-row-stale' : ''}">
                 <div class="price-chain-info">
@@ -1078,6 +1108,54 @@ class PriceCompareModule {
                 </div>`;
             })()}
         `;
+    }
+
+    _renderPriceChart(history) {
+        if (!history?.length) return '';
+        const W = 300, H = 60, PAD = 6;
+        const prices = history.map(d => parseFloat(d.min_price));
+        const minP = Math.min(...prices);
+        const maxP = Math.max(...prices);
+        const range = maxP - minP || 0.01;
+        const n = history.length;
+
+        const pts = prices.map((p, i) => {
+            const x = (PAD + (i / Math.max(n - 1, 1)) * (W - PAD * 2)).toFixed(1);
+            const y = (PAD + ((maxP - p) / range) * (H - PAD * 2)).toFixed(1);
+            return [x, y];
+        });
+
+        const polyline = pts.map(p => p.join(',')).join(' ');
+        const area = `${pts[0][0]},${H} ${polyline} ${pts[pts.length - 1][0]},${H}`;
+
+        const fmt = iso => { const d = new Date(iso); return `${d.getDate()}/${d.getMonth() + 1}`; };
+
+        return `
+            <div class="price-chart-section">
+                <div class="price-chart-title">מגמת מחיר — 30 ימים אחרונים</div>
+                <div class="price-chart-wrap">
+                    <div class="price-chart-y">
+                        <span>₪${maxP.toFixed(2)}</span>
+                        <span>₪${minP.toFixed(2)}</span>
+                    </div>
+                    <svg viewBox="0 0 ${W} ${H}" class="price-chart-svg" preserveAspectRatio="none">
+                        <defs>
+                            <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#10b981" stop-opacity="0.25"/>
+                                <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
+                            </linearGradient>
+                        </defs>
+                        <polygon points="${area}" fill="url(#chartGrad)"/>
+                        <polyline points="${polyline}" fill="none" stroke="#10b981" stroke-width="2"
+                                  stroke-linejoin="round" stroke-linecap="round"/>
+                        <circle cx="${pts[pts.length - 1][0]}" cy="${pts[pts.length - 1][1]}" r="3" fill="#10b981"/>
+                    </svg>
+                </div>
+                <div class="price-chart-dates">
+                    <span>${fmt(history[0].day)}</span>
+                    <span>${fmt(history[history.length - 1].day)}</span>
+                </div>
+            </div>`;
     }
 
     // ── ברקוד ─────────────────────────────────────────────────
@@ -1227,6 +1305,12 @@ class PriceCompareModule {
         }, { onConflict: 'product_id,family_code' });
 
         if (error) { alert('שגיאה בשמירת מעקב'); return; }
+
+        // בקש הרשאת notifications בעת הוספת מעקב
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+
         alert(`✅ עוקבים אחרי ${p.product_name}${target ? ` — תתרענן כשמחיר ≤ ₪${target}` : ''}`);
     }
 
@@ -1256,6 +1340,17 @@ class PriceCompareModule {
             </div>
         `;
         container.style.display = 'block';
+
+        // Browser notification (רק אם ניתנה הרשאה)
+        if ('Notification' in window && Notification.permission === 'granted') {
+            alerts.forEach(a => {
+                new Notification('חבי — עדכון מחיר 🛒', {
+                    body: `${a.product_name}: ₪${Number(a.current_price).toFixed(2)} ב${a.chain_name}${a.is_promotional ? ' (מבצע!)' : ''}`,
+                    icon: './icon-192.png',
+                    tag: `price-alert-${a.product_id}`
+                });
+            });
+        }
     }
 
     // ── Mock Data (יוסר בשלב 9) ──────────────────────────────
