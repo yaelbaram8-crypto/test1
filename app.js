@@ -128,11 +128,32 @@ class ShoppingApp {
         btn.title = name ? `מחובר כ: ${name}` : 'התחבר עם Google';
     }
 
+    _confirm(message, subtext = '') {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;';
+            overlay.innerHTML = `
+                <div style="background:white;border-radius:16px;padding:24px;width:100%;max-width:340px;direction:rtl;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+                    <div style="font-size:1rem;font-weight:600;color:#1e293b;margin-bottom:${subtext ? '6px' : '20px'}">${message}</div>
+                    ${subtext ? `<div style="font-size:0.85rem;color:#64748b;margin-bottom:20px">${subtext}</div>` : ''}
+                    <div style="display:flex;gap:10px;justify-content:flex-end;">
+                        <button id="_confirm-cancel" style="padding:9px 20px;border-radius:10px;border:1px solid #e2e8f0;background:white;cursor:pointer;font-size:0.9rem;">ביטול</button>
+                        <button id="_confirm-ok" style="padding:9px 20px;border-radius:10px;border:none;background:#ef4444;color:white;cursor:pointer;font-size:0.9rem;font-weight:600;">אישור</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+            const cleanup = (val) => { document.body.removeChild(overlay); resolve(val); };
+            overlay.querySelector('#_confirm-ok').onclick = () => cleanup(true);
+            overlay.querySelector('#_confirm-cancel').onclick = () => cleanup(false);
+            overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(false); });
+        });
+    }
+
     async _showAuthModal() {
         const { data: { session } } = await this.supabase.auth.getSession();
         const name = session?.user?.user_metadata?.full_name;
         if (name) {
-            if (confirm(`מחובר כ: ${name}\nלהתנתק?`)) {
+            if (await this._confirm('התנתקות', `מחובר כ: ${name}`)) {
                 await this.supabase.auth.signOut();
                 location.reload();
             }
@@ -720,7 +741,10 @@ class ShoppingApp {
 
         dropdown.innerHTML = products.map(p => `
             <div class="catalog-option" data-id="${p.id}">
-                <span class="catalog-option-name">${p.product_name}</span>
+                <div class="catalog-option-top">
+                    <span class="catalog-option-name">${p.product_name}</span>
+                    ${p.brand ? `<span class="catalog-option-brand">${p.brand}</span>` : ''}
+                </div>
                 ${p.cheapest_price != null
                     ? `<span class="catalog-option-price">₪${Number(p.cheapest_price).toFixed(2)} ב${p.cheapest_chain}</span>`
                     : `<span class="catalog-option-free">ללא מחיר</span>`}
@@ -805,7 +829,7 @@ class ShoppingApp {
     }
 
     async clearList() {
-        if (!confirm('למחוק את כל הפריטים ברשימה?')) return;
+        if (!await this._confirm('למחוק את כל הפריטים ברשימה?')) return;
         
         // Optimistic update
         this.items = [];
@@ -1269,9 +1293,19 @@ class PriceCompareModule {
         let results;
         if (this.supabase && navigator.onLine) {
             this._clearOfflineBanner();
-            const { data, error } = await this.supabase.rpc('search_products', {
-                query_text: query, result_limit: 20
-            });
+            const timeout = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('timeout')), 8000)
+            );
+            let data, error;
+            try {
+                ({ data, error } = await Promise.race([
+                    this.supabase.rpc('search_products', { query_text: query, result_limit: 20 }),
+                    timeout
+                ]));
+            } catch (e) {
+                dropdown.innerHTML = `<div class="price-result-empty">החיפוש לקח יותר מדי זמן — נסו שוב</div>`;
+                return;
+            }
             if (error) {
                 console.error('search_products RPC error:', error);
                 dropdown.innerHTML = `<div class="price-result-empty">שגיאת חיפוש — נסו שוב</div>`;

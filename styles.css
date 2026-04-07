@@ -98,18 +98,19 @@ body {
 .catalog-dropdown:empty { display: none; }
 .catalog-option {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
     padding: 10px 16px;
     cursor: pointer;
     border-bottom: 1px solid rgba(0,0,0,0.04);
-    gap: 8px;
+    gap: 3px;
 }
 .catalog-option:last-child { border-bottom: none; }
 .catalog-option:hover { background: rgba(99,102,241,0.06); }
+.catalog-option-top { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .catalog-option-name { font-size: 0.9rem; font-weight: 500; }
-.catalog-option-price { font-size: 0.8rem; color: #10b981; font-weight: 600; white-space: nowrap; }
-.catalog-option-free { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; }
+.catalog-option-brand { font-size: 0.78rem; color: var(--text-muted); background: rgba(0,0,0,0.05); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.catalog-option-price { font-size: 0.8rem; color: #10b981; font-weight: 600; }
+.catalog-option-free { font-size: 0.8rem; color: var(--text-muted); }
 
 /* Cart total row */
 .cart-total {
