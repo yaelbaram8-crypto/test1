@@ -150,6 +150,7 @@ class ShoppingApp {
     }
 
     async _showAuthModal() {
+        if (!this.supabase) return;
         const { data: { session } } = await this.supabase.auth.getSession();
         const name = session?.user?.user_metadata?.full_name;
         if (name) {
@@ -734,9 +735,15 @@ class ShoppingApp {
         if (!this.supabase) { dropdown.innerHTML = ''; return; }
 
         // search_products מחזיר cheapest_price + cheapest_chain ישירות — ללא N+1
-        const { data: products } = await this.supabase.rpc('search_products', {
-            query_text: query, result_limit: 8
-        });
+        let products;
+        try {
+            const timeout = new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 6000));
+            const { data } = await Promise.race([
+                this.supabase.rpc('search_products', { query_text: query, result_limit: 8 }),
+                timeout
+            ]);
+            products = data;
+        } catch { dropdown.innerHTML = ''; return; }
         if (!products?.length) { dropdown.innerHTML = ''; return; }
 
         dropdown.innerHTML = products.map(p => `
@@ -1026,11 +1033,21 @@ class ShoppingApp {
     }
 
     async renderStats() {
-        const [popular, history, chainsRes] = await Promise.all([
-            this.fetchPopularItems(),
-            this.fetchAllHistory(),
-            this.supabase ? this.supabase.from('supermarket_chains').select('id,chain_name') : Promise.resolve({ data: [] })
-        ]);
+        const timeout = (ms) => new Promise((_, r) => setTimeout(() => r(new Error('timeout')), ms));
+        let popular = [], history = [], chainsRes = { data: [] };
+        try {
+            [popular, history, chainsRes] = await Promise.race([
+                Promise.all([
+                    this.fetchPopularItems(),
+                    this.fetchAllHistory(),
+                    this.supabase ? this.supabase.from('supermarket_chains').select('id,chain_name') : Promise.resolve({ data: [] })
+                ]),
+                timeout(8000).then(() => { throw new Error('timeout'); })
+            ]);
+        } catch {
+            this.statsContainer.innerHTML = `<div class="empty-state"><p>אין מספיק נתונים לסטטיסטיקה. התחילו לקנות!</p></div>`;
+            return;
+        }
 
         if (popular.length === 0 && history.length === 0) {
             this.statsContainer.innerHTML = `<div class="empty-state"><p>אין מספיק נתונים לסטטיסטיקה. התחילו לקנות!</p></div>`;
@@ -1220,6 +1237,8 @@ class PriceCompareModule {
 
     // ── תצוגת חיפוש ──────────────────────────────────────────
     _renderSearchView() {
+        if (!this.container) this.container = document.getElementById('prices-container');
+        if (!this.container) return;
         this.container.innerHTML = `
             <div class="price-search-wrapper">
                 <div class="price-search-bar">
