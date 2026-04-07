@@ -31,7 +31,7 @@ jobs:
         env:
           SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node sync-prices.mjs
+        run: node --max-old-space-size=4096 --expose-gc sync-prices.mjs
 
       - name: Report summary
         if: always()
