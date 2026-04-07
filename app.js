@@ -50,6 +50,7 @@ class ShoppingApp {
     async init() {
         this.cacheDom();
         this.bindEvents();
+        if (this.supabase) await this._initAuth(); // Auth לפני fetchItems — RLS דורש session
         await this.fetchItems();
         this.setupRealtime();
         this.render();
@@ -57,6 +58,94 @@ class ShoppingApp {
         this.priceModule.init(this.supabase);
         this.priceModule.checkPriceAlerts(this.familyCode);
         console.log("🚀 חבי - סוכן החיסכון בסופר | מאותחל עם Supabase");
+    }
+
+    async _initAuth() {
+        this.supabase.auth.onAuthStateChange(async (event, session) => {
+            if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session) {
+                await this._syncUserProfile(session);
+                await this.fetchItems();
+                this.render();
+            }
+        });
+
+        const { data: { session } } = await this.supabase.auth.getSession();
+        if (session) {
+            await this._syncUserProfile(session);
+        } else {
+            const { error } = await this.supabase.auth.signInAnonymously();
+            if (error) console.warn('Anonymous auth failed:', error.message);
+        }
+    }
+
+    async _syncUserProfile(session) {
+        if (!session?.user) return;
+
+        const { data: profile } = await this.supabase
+            .from('user_profiles')
+            .select('family_code, display_name, avatar_url')
+            .eq('user_id', session.user.id)
+            .maybeSingle();
+
+        const urlFamily = new URLSearchParams(window.location.search).get('family');
+
+        if (profile) {
+            // אם URL מכיל קוד משפחה אחר — הצטרף אליו
+            if (urlFamily && urlFamily !== profile.family_code) {
+                await this.supabase.from('user_profiles')
+                    .update({ family_code: urlFamily })
+                    .eq('user_id', session.user.id);
+                this.familyCode = urlFamily;
+            } else {
+                this.familyCode = profile.family_code;
+            }
+        } else {
+            // משתמש חדש — צור פרופיל
+            await this.supabase.from('user_profiles').insert({
+                user_id:      session.user.id,
+                family_code:  this.familyCode,
+                display_name: session.user.user_metadata?.full_name ?? null,
+                avatar_url:   session.user.user_metadata?.avatar_url ?? null
+            });
+        }
+        localStorage.setItem('family_code', this.familyCode);
+        this._renderAuthBtn(session);
+    }
+
+    _renderAuthBtn(session) {
+        const btn = document.getElementById('auth-btn');
+        if (!btn) return;
+        const avatar = session?.user?.user_metadata?.avatar_url;
+        const name   = session?.user?.user_metadata?.full_name;
+        const isAnon = session?.user?.is_anonymous !== false || !name;
+        if (avatar) {
+            btn.innerHTML = `<img src="${avatar}" class="auth-avatar" alt="${name}">`;
+        } else if (!isAnon && name) {
+            btn.innerHTML = `<span class="auth-initial">${name[0].toUpperCase()}</span>`;
+        } else {
+            btn.innerHTML = `<span class="icon">👤</span>`;
+        }
+        btn.title = name ? `מחובר כ: ${name}` : 'התחבר עם Google';
+    }
+
+    async _showAuthModal() {
+        const { data: { session } } = await this.supabase.auth.getSession();
+        const name = session?.user?.user_metadata?.full_name;
+        if (name) {
+            if (confirm(`מחובר כ: ${name}\nלהתנתק?`)) {
+                await this.supabase.auth.signOut();
+                location.reload();
+            }
+            return;
+        }
+        document.getElementById('auth-modal').style.display = 'flex';
+    }
+
+    async _signInWithGoogle() {
+        await this.supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: window.location.href }
+        });
     }
 
     async _loadPricesBackground() {
@@ -155,6 +244,13 @@ class ShoppingApp {
                 }
             });
         }
+
+        // Auth
+        document.getElementById('auth-btn')?.addEventListener('click', () => this._showAuthModal());
+        document.getElementById('google-signin-btn')?.addEventListener('click', () => this._signInWithGoogle());
+        document.getElementById('auth-modal-close')?.addEventListener('click', () => {
+            document.getElementById('auth-modal').style.display = 'none';
+        });
 
         // OCR Scan Trigger
         this.scanBtn.addEventListener('click', () => this.fileInput.click());

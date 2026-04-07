@@ -201,6 +201,49 @@ input[type="text"]::placeholder {
     align-items: center;
 }
 
+/* Auth */
+.auth-avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+}
+.auth-initial {
+    display: inline-flex;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    color: white;
+    font-size: 0.72rem; font-weight: 700;
+    align-items: center; justify-content: center;
+}
+.auth-modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+}
+.auth-modal-content {
+    background: white;
+    border-radius: 20px;
+    padding: 32px 24px;
+    max-width: 320px; width: 90%;
+    text-align: center;
+}
+.auth-modal-content h3 { font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+.auth-modal-content p  { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 24px; }
+.btn-google {
+    background: white;
+    border: 1.5px solid #e2e8f0;
+    color: var(--text-main);
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; padding: 12px;
+    border-radius: 12px;
+    font-size: 0.95rem; font-weight: 600;
+    cursor: pointer;
+}
+.btn-google:hover { background: #f8fafc; }
+
 /* Quantity control in add section */
 .qty-control {
     display: flex;

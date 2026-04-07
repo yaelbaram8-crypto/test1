@@ -461,3 +461,42 @@ DROP INDEX IF EXISTS market_prices_product_id_chain_id_key;
 -- Note: also drop the unique constraint and recreate it:
 -- ALTER TABLE market_prices DROP CONSTRAINT IF EXISTS market_prices_product_id_chain_id_key;
 -- ALTER TABLE market_prices ADD CONSTRAINT market_prices_product_id_chain_id_branch_key UNIQUE (product_id, chain_id, branch_code);
+
+-- ===================================================
+-- PHASE 6: Real Auth + RLS
+-- דורש: Anonymous Auth מופעל ב-Supabase Dashboard
+-- ===================================================
+
+-- טבלת פרופיל משתמש — מקשרת auth.uid() ל-family_code
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id      UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    family_code  TEXT NOT NULL,
+    display_name TEXT,
+    avatar_url   TEXT,
+    created_at   TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_family ON user_profiles(family_code);
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own profile" ON user_profiles
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- RLS אמיתי על shopping_items
+DROP POLICY IF EXISTS "Public access items" ON shopping_items;
+CREATE POLICY "Family access items" ON shopping_items
+    FOR ALL
+    USING  (family_code IN (SELECT family_code FROM user_profiles WHERE user_id = auth.uid()))
+    WITH CHECK (family_code IN (SELECT family_code FROM user_profiles WHERE user_id = auth.uid()));
+
+-- RLS אמיתי על purchase_history
+DROP POLICY IF EXISTS "Public access history" ON purchase_history;
+CREATE POLICY "Family access history" ON purchase_history
+    FOR ALL
+    USING  (family_code IN (SELECT family_code FROM user_profiles WHERE user_id = auth.uid()))
+    WITH CHECK (family_code IN (SELECT family_code FROM user_profiles WHERE user_id = auth.uid()));
+
+-- RLS אמיתי על watched_items
+DROP POLICY IF EXISTS "Public access watched" ON watched_items;
+CREATE POLICY "Family access watched" ON watched_items
+    FOR ALL
+    USING  (family_code IN (SELECT family_code FROM user_profiles WHERE user_id = auth.uid()))
+    WITH CHECK (family_code IN (SELECT family_code FROM user_profiles WHERE user_id = auth.uid()));

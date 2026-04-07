@@ -39,6 +39,9 @@
                     <button id="share-family-btn" class="btn btn-secondary" title="שתף רשימה עם המשפחה">
                         <span class="icon">👨‍👩‍👧</span>
                     </button>
+                    <button id="auth-btn" class="btn btn-secondary" title="חשבון">
+                        <span class="icon">👤</span>
+                    </button>
                     <button id="optimize-cart-btn" class="btn btn-primary" title="השוואת מחירים (חסוך בסל)">
                         <span class="icon">💰</span>
                     </button>
@@ -138,5 +141,17 @@
         });
       }
     </script>
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="auth-modal" style="display:none;">
+        <div class="auth-modal-content">
+            <h3>כניסה לחבי 🛒</h3>
+            <p>התחברו כדי לשמור את הרשימה בענן ולשתף עם המשפחה</p>
+            <button id="google-signin-btn" class="btn-google">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="18" alt="Google">
+                התחבר עם Google
+            </button>
+            <button id="auth-modal-close" class="btn btn-secondary" style="width:100%;margin-top:8px;">המשך ללא כניסה</button>
+        </div>
+    </div>
 </body>
 </html>
