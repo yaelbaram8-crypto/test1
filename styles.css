@@ -244,6 +244,17 @@ input[type="text"]::placeholder {
 }
 .btn-google:hover { background: #f8fafc; }
 
+.no-price-btn {
+    background: none;
+    border: 1px dashed #d1d5db;
+    border-radius: 6px;
+    color: #9ca3af;
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    cursor: pointer;
+}
+.no-price-btn:hover { border-color: var(--primary-color); color: var(--primary-color); }
+
 /* Quantity control in add section */
 .qty-control {
     display: flex;

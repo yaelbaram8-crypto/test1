@@ -153,22 +153,59 @@ class ShoppingApp {
         const activeItems = this.items.filter(i => !i.completed && !i.priceData);
         if (!activeItems.length) return;
 
+        // חיפוש ראשון — טקסט מלא
         const results = await Promise.all(
             activeItems.map(item =>
                 this.supabase.rpc('search_products', { query_text: item.text, result_limit: 1 })
             )
         );
 
-        let changed = false;
+        const stillMissing = [];
         results.forEach((res, i) => {
             const p = res.data?.[0];
             if (p?.cheapest_price != null) {
                 activeItems[i].priceData = { chain: p.cheapest_chain, price: parseFloat(p.cheapest_price) };
-                changed = true;
+            } else {
+                stillMissing.push(i);
             }
         });
 
-        if (changed) this.render();
+        // חיפוש שני — רק המילה הראשונה (לפריטים שלא נמצאו)
+        if (stillMissing.length) {
+            const retries = await Promise.all(
+                stillMissing.map(i => {
+                    const firstWord = activeItems[i].text.split(/[\s,\-–]/)[0].trim();
+                    if (firstWord.length < 2) return Promise.resolve({ data: [] });
+                    return this.supabase.rpc('search_products', { query_text: firstWord, result_limit: 1 });
+                })
+            );
+            retries.forEach((res, j) => {
+                const p = res.data?.[0];
+                const i = stillMissing[j];
+                if (p?.cheapest_price != null) {
+                    activeItems[i].priceData = { chain: p.cheapest_chain, price: parseFloat(p.cheapest_price) };
+                } else {
+                    activeItems[i].priceData = null; // מסמן כ"נוסה ונכשל"
+                    activeItems[i].priceNotFound = true;
+                }
+            });
+        }
+
+        this.render();
+    }
+
+    searchItemPrice(itemId) {
+        // מעבר לטאב מחירים + חיפוש אוטומטי
+        const item = this.items.find(i => i.id === itemId);
+        if (!item) return;
+        document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+        document.querySelector('.nav-item[data-view="prices"]')?.classList.add('active');
+        this.switchView('prices');
+        const input = document.getElementById('price-search-input');
+        if (input) {
+            input.value = item.text;
+            input.dispatchEvent(new Event('input'));
+        }
     }
 
 
@@ -802,7 +839,11 @@ class ShoppingApp {
                     <div class="checkbox"></div>
                     <div style="display:flex; flex-direction:column; gap:4px;">
                         <span class="item-text">${item.text}</span>
-                        ${item.priceData?.price && item.priceData?.chain && !item.completed ? `<span style="font-size:0.75rem; color:#10b981; font-weight:600;">₪${item.priceData.price.toFixed(2)} · ${item.priceData.chain}</span>` : ''}
+                        ${item.priceData?.price && item.priceData?.chain && !item.completed
+                            ? `<span style="font-size:0.75rem;color:#10b981;font-weight:600;">₪${item.priceData.price.toFixed(2)} · ${item.priceData.chain}</span>`
+                            : item.priceNotFound && !item.completed
+                                ? `<button class="no-price-btn" onclick="event.stopPropagation();window.app.searchItemPrice('${item.id}')">🔍 מצא מחיר</button>`
+                                : ''}
                     </div>
                 </div>
                 <div class="item-controls">
