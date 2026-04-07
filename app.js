@@ -697,21 +697,38 @@ class ShoppingApp {
 
     _renderCartTotal() {
         const activeItems = this.items.filter(i => !i.completed);
-        const withPrice = activeItems.filter(i => i.priceData?.price && i.priceData?.chain);
-        const total = withPrice.reduce((sum, i) => sum + i.priceData.price * (i.quantity || 1), 0);
-
-        // הסר כל סכום קודם
         document.getElementById('cart-total-row')?.remove();
-        if (!withPrice.length) return;
 
+        // אם יש תוצאת אופטימיזציה — הצג את הרשת הזולה ביותר
+        const best = this.cartOptimization?.chains?.[0];
+        if (best) {
+            const row = document.createElement('div');
+            row.id = 'cart-total-row';
+            row.className = 'cart-total';
+            row.innerHTML = `
+                <div>
+                    <div class="cart-total-label">הכי זול — ${best.chain_name}</div>
+                    <div class="cart-total-partial">(${best.found} מתוך ${activeItems.length} פריטים)</div>
+                </div>
+                <span class="cart-total-amount">₪${best.total.toFixed(2)}</span>
+            `;
+            this.listContainer.appendChild(row);
+            return;
+        }
+
+        // אחרת — סכום מחירים זמינים (לפני אופטימיזציה)
+        const withPrice = activeItems.filter(i => i.priceData?.price && i.priceData?.chain);
+        if (!withPrice.length) return;
+        const total = withPrice.reduce((sum, i) => sum + i.priceData.price * (i.quantity || 1), 0);
         const isPartial = withPrice.length < activeItems.length;
+
         const row = document.createElement('div');
         row.id = 'cart-total-row';
         row.className = 'cart-total';
         row.innerHTML = `
             <div>
-                <div class="cart-total-label">סה"כ צפוי</div>
-                ${isPartial ? `<div class="cart-total-partial">(${withPrice.length} מתוך ${activeItems.length} פריטים עם מחיר)</div>` : ''}
+                <div class="cart-total-label">סה"כ משוער</div>
+                ${isPartial ? `<div class="cart-total-partial">(${withPrice.length} מתוך ${activeItems.length} פריטים)</div>` : ''}
             </div>
             <span class="cart-total-amount">₪${total.toFixed(2)}</span>
         `;
