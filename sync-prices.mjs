@@ -18,10 +18,10 @@ import * as ftp from 'basic-ftp';
  */
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
-    console.error('❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+    console.error('❌ Missing SUPABASE_URL or SUPABASE_KEY');
     process.exit(1);
 }
 
@@ -461,6 +461,7 @@ async function syncChain(chain) {
     }
 
     const products = extractProducts(parsed);
+    parsed = null; // פנה זיכרון מה-XML המפורסר
     if (!products.length) throw new Error('פורסרו 0 מוצרים - בדוק פורמט XML');
     console.log(`  ✅ פורסרו ${products.length.toLocaleString()} מוצרים`);
 
@@ -481,10 +482,12 @@ async function syncChain(chain) {
             case 'generic_html': promoParsed = await fetchGenericHtml(chain, 'PromoFull');  break;
         }
         const promoSet = extractPromos(promoParsed);
+        promoParsed = null; // פנה זיכרון
         await upsertPromos(promoSet, chainId, promoBranchCode);
     } catch (err) {
         console.warn(`  ⚠️  פרומו נכשל (לא קריטי): ${err.message}`);
     }
+    if (global.gc) global.gc(); // פנה זיכרון בין רשתות
 }
 
 async function syncPrices() {
